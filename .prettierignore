@@ -1,0 +1,7 @@
+node_modules/
+dist/
+src-tauri/target/
+package-lock.json
+
+# Existing roadmap content is maintained independently.
+Docs/Plan.md
