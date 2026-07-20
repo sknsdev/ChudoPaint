@@ -7,6 +7,7 @@ export interface RgbaColor {
   alpha: number;
 }
 
+/** Stores straight sRGB RGBA8 pixels for a single raster layer. */
 export class RasterSurface {
   readonly data: Uint8ClampedArray;
 

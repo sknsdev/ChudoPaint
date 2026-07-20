@@ -1,9 +1,11 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent, WheelEvent as ReactWheelEvent } from "react";
 import type { EditorSession } from "@/editor/session";
 import type { Tool } from "@/editor/tools";
 import {
   createViewport,
+  fitDocumentToViewport,
+  resetViewportToActualSize,
   screenToDocument,
   screenToViewport,
   viewportToDocument,
@@ -16,6 +18,7 @@ const CHECKERBOARD_DARK_COLOR = "#cacaca";
 const MIN_ZOOM = 0.1;
 const MAX_ZOOM = 32;
 const ZOOM_STEP = 1.1;
+const VIEWPORT_PADDING = 40;
 
 interface EditorCanvasProps {
   documentVersion: number;
@@ -94,6 +97,40 @@ export function EditorCanvas({ documentVersion, session, tool }: EditorCanvasPro
   const [revision, setRevision] = useState(0);
   const document = session.document;
 
+  const fitToScreen = useCallback((): void => {
+    const workspace = workspaceRef.current;
+    if (!workspace) {
+      return;
+    }
+
+    const bounds = workspace.getBoundingClientRect();
+    if (bounds.width === 0 || bounds.height === 0) {
+      return;
+    }
+
+    setViewport(
+      fitDocumentToViewport(document, bounds, {
+        minZoom: MIN_ZOOM,
+        maxZoom: MAX_ZOOM,
+        padding: VIEWPORT_PADDING,
+      }),
+    );
+  }, [document]);
+
+  const resetToActualSize = useCallback((): void => {
+    const workspace = workspaceRef.current;
+    if (!workspace) {
+      return;
+    }
+
+    const bounds = workspace.getBoundingClientRect();
+    if (bounds.width === 0 || bounds.height === 0) {
+      return;
+    }
+
+    setViewport(resetViewportToActualSize(document, bounds));
+  }, [document]);
+
   useLayoutEffect(() => {
     const workspace = workspaceRef.current;
     if (!workspace) {
@@ -155,8 +192,16 @@ export function EditorCanvas({ documentVersion, session, tool }: EditorCanvasPro
       drawCheckerboard(context, document.width, document.height);
     }
 
-    drawSurface(context, document.width, document.height, session.getActiveSurface().data);
-  }, [document.background, document.height, document.width, documentVersion, revision, session]);
+    drawSurface(context, document.width, document.height, session.getCompositePixels());
+  }, [
+    document.background,
+    document.height,
+    document.layers,
+    document.width,
+    documentVersion,
+    revision,
+    session,
+  ]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
@@ -166,7 +211,20 @@ export function EditorCanvas({ documentVersion, session, tool }: EditorCanvasPro
         return;
       }
 
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") {
+      const hasCommandModifier = event.ctrlKey || event.metaKey;
+      if (hasCommandModifier && event.key === "0") {
+        event.preventDefault();
+        fitToScreen();
+        return;
+      }
+
+      if (hasCommandModifier && event.key === "1") {
+        event.preventDefault();
+        resetToActualSize();
+        return;
+      }
+
+      if (hasCommandModifier && event.key.toLowerCase() === "z") {
         event.preventDefault();
         if (session.undo()) {
           setRevision((current) => current + 1);
@@ -186,7 +244,7 @@ export function EditorCanvas({ documentVersion, session, tool }: EditorCanvasPro
       globalThis.removeEventListener("keydown", onKeyDown);
       globalThis.removeEventListener("keyup", onKeyUp);
     };
-  }, [session]);
+  }, [fitToScreen, resetToActualSize, session]);
 
   const toDocumentPoint = (clientX: number, clientY: number): Point => {
     const workspace = workspaceRef.current;
@@ -319,9 +377,27 @@ export function EditorCanvas({ documentVersion, session, tool }: EditorCanvasPro
       >
         Your browser does not support Canvas 2D.
       </canvas>
-      <p className="canvas-status" aria-live="polite">
-        {Math.round(viewport.zoom * 100)}% · Pencil · Ctrl/Cmd+Z undo
-      </p>
+      <div className="canvas-status" aria-live="polite">
+        <button
+          type="button"
+          title="Fit to screen (Ctrl/Cmd+0)"
+          onClick={fitToScreen}
+          onPointerDown={(event) => event.stopPropagation()}
+          onWheel={(event) => event.stopPropagation()}
+        >
+          Fit
+        </button>
+        <button
+          type="button"
+          title="Actual size (Ctrl/Cmd+1)"
+          onClick={resetToActualSize}
+          onPointerDown={(event) => event.stopPropagation()}
+          onWheel={(event) => event.stopPropagation()}
+        >
+          100%
+        </button>
+        <span>{Math.round(viewport.zoom * 100)}% · Pencil · Ctrl/Cmd+Z undo</span>
+      </div>
     </div>
   );
 }

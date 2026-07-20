@@ -14,8 +14,4 @@ export interface LayerOffset {
   y: number;
 }
 
-/**
- * The first layer type. Pixel storage is intentionally introduced separately
- * from React state when the renderer is implemented.
- */
 export type RasterLayer = Layer;

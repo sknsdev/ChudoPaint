@@ -8,6 +8,7 @@ import {
   documentNameFromPath,
   encodePng,
 } from "@/editor/files/png";
+import { LayersPanel } from "@/editor/layers/LayersPanel";
 import { EditorSession } from "@/editor/session";
 import { PencilTool } from "@/editor/tools";
 
@@ -76,7 +77,7 @@ function App() {
         path,
         document.width,
         document.height,
-        editorSession.getActiveSurface().data,
+        editorSession.getCompositePixels(),
       );
       editorSession.markSaved();
       setDocumentVersion((version) => version + 1);
@@ -110,7 +111,14 @@ function App() {
       </header>
 
       {statusMessage ? <p className="file-status">{statusMessage}</p> : null}
-      <EditorCanvas documentVersion={documentVersion} session={editorSession} tool={pencilTool} />
+      <div className="editor-content">
+        <EditorCanvas documentVersion={documentVersion} session={editorSession} tool={pencilTool} />
+        <LayersPanel
+          document={document}
+          session={editorSession}
+          onDocumentChange={() => setDocumentVersion((version) => version + 1)}
+        />
+      </div>
     </main>
   );
 }
