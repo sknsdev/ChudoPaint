@@ -60,26 +60,81 @@ h1 {
   font-size: 1.4rem;
 }
 
+.app-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.app-actions button {
+  padding: 0.45rem 0.75rem;
+  border: 1px solid #5d78ae;
+  border-radius: 0.35rem;
+  background: #294878;
+  color: #f8fafc;
+  cursor: pointer;
+}
+
+.app-actions button:hover:not(:disabled) {
+  background: #365c96;
+}
+
+.app-actions button:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
 .document-details {
   margin: 0;
   color: #cbd5e1;
   font-size: 0.875rem;
 }
 
+.file-status {
+  position: absolute;
+  z-index: 1;
+  top: 4.5rem;
+  left: 1rem;
+  max-width: min(40rem, calc(100% - 2rem));
+  margin: 0;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid #34415f;
+  border-radius: 0.35rem;
+  background: rgb(32 43 67 / 95%);
+  color: #d9e2f4;
+  font-size: 0.875rem;
+}
+
 .canvas-workspace {
-  display: grid;
+  position: relative;
   min-width: 0;
-  padding: 2rem;
-  overflow: auto;
+  overflow: hidden;
   background: #111827;
-  place-items: center;
+  touch-action: none;
 }
 
 .editor-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
   display: block;
-  flex: none;
   border: 1px solid #69758e;
   box-shadow: 0 1rem 2.5rem rgb(0 0 0 / 28%);
+  transform-origin: top left;
+}
+
+.canvas-status {
+  position: absolute;
+  right: 1rem;
+  bottom: 1rem;
+  margin: 0;
+  padding: 0.4rem 0.65rem;
+  border: 1px solid #34415f;
+  border-radius: 0.35rem;
+  background: rgb(32 43 67 / 90%);
+  color: #d9e2f4;
+  font-size: 0.75rem;
+  pointer-events: none;
 }
 
 @media (max-width: 560px) {
@@ -88,8 +143,7 @@ h1 {
     flex-direction: column;
   }
 
-  .canvas-workspace {
-    padding: 1rem;
-    place-items: start center;
+  .app-actions {
+    flex-wrap: wrap;
   }
 }

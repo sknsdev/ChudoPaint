@@ -1,6 +1,7 @@
 export interface Layer {
   /** Stable identity used by commands and UI selection. */
   id: string;
+  kind: "raster";
   name: string;
   visible: boolean;
   opacity: number;
@@ -17,6 +18,4 @@ export interface LayerOffset {
  * The first layer type. Pixel storage is intentionally introduced separately
  * from React state when the renderer is implemented.
  */
-export interface RasterLayer extends Layer {
-  kind: "raster";
-}
+export type RasterLayer = Layer;
