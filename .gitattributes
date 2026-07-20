@@ -1,0 +1,8 @@
+# Keep repository text files platform-independent and compatible with Prettier CI.
+* text=auto eol=lf
+
+# Preserve binary application and icon assets exactly as generated.
+*.ico binary
+*.icns binary
+*.png binary
+*.svg text eol=lf

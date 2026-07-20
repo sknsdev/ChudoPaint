@@ -1,5 +1,11 @@
 Ниже — реалистичный backlog для **open-source растрового редактора уровня Paint/Pinta со слоями** на **Rust + Tauri + React**.
 
+> **Текущий статус — 0.2.0:** готовы Tauri/React-основа, CI, PNG import/export,
+> canvas с viewport, базовые слои и normal alpha compositing, карандаш, кисть,
+> ластик, flood fill, primary/secondary colors и undo/redo одного raster-мазка.
+> Следующий крупный этап: расширить историю и завершить оставшиеся инструменты
+> базового Paint (пипетка, выбор tolerance, JPEG/WebP и clipboard).
+
 # 0. Зафиксировать границы проекта
 
 Перед разработкой определить MVP:
