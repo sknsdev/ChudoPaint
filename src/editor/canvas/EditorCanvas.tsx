@@ -226,7 +226,16 @@ export function EditorCanvas({ documentVersion, session, tool }: EditorCanvasPro
 
       if (hasCommandModifier && event.key.toLowerCase() === "z") {
         event.preventDefault();
-        if (session.undo()) {
+        const changed = event.shiftKey ? session.redo() : session.undo();
+        if (changed) {
+          setRevision((current) => current + 1);
+        }
+        return;
+      }
+
+      if (event.ctrlKey && !event.metaKey && event.key.toLowerCase() === "y") {
+        event.preventDefault();
+        if (session.redo()) {
           setRevision((current) => current + 1);
         }
       }
@@ -294,13 +303,17 @@ export function EditorCanvas({ documentVersion, session, tool }: EditorCanvasPro
       return;
     }
 
-    if (event.button !== 0) {
+    if (event.button !== 0 && event.button !== 2) {
       return;
     }
 
+    event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
     drawingPointerId.current = event.pointerId;
-    tool.onPointerDown({ point: toDocumentPoint(event.clientX, event.clientY) }, session);
+    tool.onPointerDown(
+      { point: toDocumentPoint(event.clientX, event.clientY), button: event.button },
+      session,
+    );
     setRevision((current) => current + 1);
   };
 
@@ -321,7 +334,10 @@ export function EditorCanvas({ documentVersion, session, tool }: EditorCanvasPro
       return;
     }
 
-    tool.onPointerMove({ point: toDocumentPoint(event.clientX, event.clientY) }, session);
+    tool.onPointerMove(
+      { point: toDocumentPoint(event.clientX, event.clientY), button: event.button },
+      session,
+    );
     setRevision((current) => current + 1);
   };
 
@@ -335,7 +351,10 @@ export function EditorCanvas({ documentVersion, session, tool }: EditorCanvasPro
       return;
     }
 
-    tool.onPointerUp({ point: toDocumentPoint(event.clientX, event.clientY) }, session);
+    tool.onPointerUp(
+      { point: toDocumentPoint(event.clientX, event.clientY), button: event.button },
+      session,
+    );
     drawingPointerId.current = null;
     setRevision((current) => current + 1);
   };
@@ -396,7 +415,7 @@ export function EditorCanvas({ documentVersion, session, tool }: EditorCanvasPro
         >
           100%
         </button>
-        <span>{Math.round(viewport.zoom * 100)}% · Pencil · Ctrl/Cmd+Z undo</span>
+        <span>{Math.round(viewport.zoom * 100)}% · Ctrl/Cmd+Z undo · Ctrl/Cmd+Shift+Z redo</span>
       </div>
     </div>
   );

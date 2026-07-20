@@ -16,15 +16,17 @@ describe("EditorSession", () => {
     const session = new EditorSession(document);
     const pencil = new PencilTool();
 
-    pencil.onPointerDown({ point: { x: 1, y: 1 } }, session);
-    pencil.onPointerMove({ point: { x: 3, y: 1 } }, session);
-    pencil.onPointerUp({ point: { x: 3, y: 1 } }, session);
+    pencil.onPointerDown({ point: { x: 1, y: 1 }, button: 0 }, session);
+    pencil.onPointerMove({ point: { x: 3, y: 1 }, button: 0 }, session);
+    pencil.onPointerUp({ point: { x: 3, y: 1 }, button: 0 }, session);
 
     const pixelOffset = (1 * document.width + 2) * 4;
     expect(session.getActiveSurface().data[pixelOffset + 3]).toBe(255);
     expect(session.undo()).toBe(true);
     expect(session.getActiveSurface().data[pixelOffset + 3]).toBe(0);
-    expect(session.undo()).toBe(false);
+    expect(session.redo()).toBe(true);
+    expect(session.getActiveSurface().data[pixelOffset + 3]).toBe(255);
+    expect(session.redo()).toBe(false);
   });
 
   it("manages raster layers while retaining one layer", () => {

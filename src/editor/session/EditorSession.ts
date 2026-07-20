@@ -5,7 +5,8 @@ import type { EditorDocument } from "@/editor/document";
 import type { Layer } from "@/editor/layers/types";
 import { compositeDocumentLayers } from "@/editor/renderer/composite";
 import { RasterSurface } from "@/editor/renderer/RasterSurface";
-import type { RgbaColor } from "@/editor/renderer/RasterSurface";
+import type { BrushSettings, RgbaColor } from "@/editor/renderer/RasterSurface";
+import type { ColorSlot } from "@/editor/tools";
 import type { ToolContext } from "@/editor/tools";
 import type { Point } from "@/editor/viewport";
 
@@ -19,6 +20,17 @@ function createLayerId(): string {
   return globalThis.crypto.randomUUID();
 }
 
+const DEFAULT_COLORS = {
+  primary: { red: 17, green: 24, blue: 39, alpha: 255 },
+  secondary: { red: 255, green: 255, blue: 255, alpha: 255 },
+};
+
+const DEFAULT_BRUSH_SETTINGS: BrushSettings = {
+  size: 16,
+  hardness: 1,
+  opacity: 1,
+};
+
 /**
  * Owns mutable pixel surfaces outside React state and coordinates the MVP
  * one-stroke undo history.
@@ -28,6 +40,8 @@ export class EditorSession implements ToolContext {
   private readonly surfaces = new Map<string, RasterSurface>();
   private readonly history = new SingleStepHistory();
   private activeStroke: ActiveRasterStroke | null = null;
+  private currentColors = { ...DEFAULT_COLORS };
+  private currentBrushSettings = { ...DEFAULT_BRUSH_SETTINGS };
 
   constructor(
     document: EditorDocument,
@@ -62,6 +76,56 @@ export class EditorSession implements ToolContext {
 
   markSaved(): void {
     this.currentDocument = markDocumentSaved(this.currentDocument);
+  }
+
+  get colors(): Readonly<typeof DEFAULT_COLORS> {
+    return this.currentColors;
+  }
+
+  getColor(slot: ColorSlot): RgbaColor {
+    return this.currentColors[slot];
+  }
+
+  setColor(slot: ColorSlot, color: RgbaColor): void {
+    this.currentColors = {
+      ...this.currentColors,
+      [slot]: { ...color },
+    };
+  }
+
+  swapColors(): void {
+    this.currentColors = {
+      primary: this.currentColors.secondary,
+      secondary: this.currentColors.primary,
+    };
+  }
+
+  resetColors(): void {
+    this.currentColors = {
+      primary: { ...DEFAULT_COLORS.primary },
+      secondary: { ...DEFAULT_COLORS.secondary },
+    };
+  }
+
+  getBrushSettings(): BrushSettings {
+    return { ...this.currentBrushSettings };
+  }
+
+  setBrushSettings(settings: BrushSettings): void {
+    if (
+      !Number.isFinite(settings.size) ||
+      settings.size < 1 ||
+      !Number.isFinite(settings.hardness) ||
+      settings.hardness < 0 ||
+      settings.hardness > 1 ||
+      !Number.isFinite(settings.opacity) ||
+      settings.opacity < 0 ||
+      settings.opacity > 1
+    ) {
+      throw new RangeError("Brush settings are invalid.");
+    }
+
+    this.currentBrushSettings = { ...settings };
   }
 
   createLayer(name = `Layer ${this.currentDocument.layers.length + 1}`): Layer {
@@ -211,13 +275,23 @@ export class EditorSession implements ToolContext {
   }
 
   drawRasterLine(from: Point, to: Point, color: RgbaColor): boolean {
-    if (!this.activeStroke) {
-      return false;
+    return this.applyToActiveStroke((surface) => surface.drawLine(from, to, color));
+  }
+
+  drawRasterBrushLine(from: Point, to: Point, color: RgbaColor, settings: BrushSettings): boolean {
+    return this.applyToActiveStroke((surface) => surface.drawBrushLine(from, to, color, settings));
+  }
+
+  eraseRasterBrushLine(from: Point, to: Point, settings: BrushSettings): boolean {
+    return this.applyToActiveStroke((surface) => surface.eraseBrushLine(from, to, settings));
+  }
+
+  floodFill(point: Point, color: RgbaColor, tolerance: number): boolean {
+    if (!Number.isFinite(tolerance) || tolerance < 0 || tolerance > 255) {
+      throw new RangeError(`Fill tolerance must be between 0 and 255. Received: ${tolerance}.`);
     }
 
-    const changed = this.activeStroke.surface.drawLine(from, to, color);
-    this.activeStroke.changed = this.activeStroke.changed || changed;
-    return changed;
+    return this.applyToActiveStroke((surface) => surface.floodFill(point, color, tolerance));
   }
 
   finishRasterStroke(): boolean {
@@ -232,7 +306,9 @@ export class EditorSession implements ToolContext {
       return false;
     }
 
-    this.history.push(new RasterSnapshotCommand(stroke.surface, stroke.before));
+    this.history.push(
+      new RasterSnapshotCommand(stroke.surface, stroke.before, stroke.surface.clonePixels()),
+    );
     this.currentDocument = markDocumentDirty(this.currentDocument);
     return true;
   }
@@ -253,6 +329,25 @@ export class EditorSession implements ToolContext {
     }
 
     return undone;
+  }
+
+  redo(): boolean {
+    const redone = this.history.redo();
+    if (redone) {
+      this.currentDocument = markDocumentDirty(this.currentDocument);
+    }
+
+    return redone;
+  }
+
+  private applyToActiveStroke(operation: (surface: RasterSurface) => boolean): boolean {
+    if (!this.activeStroke) {
+      return false;
+    }
+
+    const changed = operation(this.activeStroke.surface);
+    this.activeStroke.changed = this.activeStroke.changed || changed;
+    return changed;
   }
 
   private findLayerIndex(id: string): number {

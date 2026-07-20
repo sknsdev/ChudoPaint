@@ -1,24 +1,39 @@
 import type { Command } from "@/editor/history/Command";
 
-/** The MVP history retains the latest completed command only. */
+/** The MVP history retains one undoable command and its redo counterpart. */
 export class SingleStepHistory {
-  private latestCommand: Command | null = null;
+  private undoCommand: Command | null = null;
+  private redoCommand: Command | null = null;
 
   push(command: Command): void {
-    this.latestCommand = command;
+    this.undoCommand = command;
+    this.redoCommand = null;
   }
 
   clear(): void {
-    this.latestCommand = null;
+    this.undoCommand = null;
+    this.redoCommand = null;
   }
 
   undo(): boolean {
-    if (!this.latestCommand) {
+    if (!this.undoCommand) {
       return false;
     }
 
-    this.latestCommand.undo();
-    this.latestCommand = null;
+    this.undoCommand.undo();
+    this.redoCommand = this.undoCommand;
+    this.undoCommand = null;
+    return true;
+  }
+
+  redo(): boolean {
+    if (!this.redoCommand) {
+      return false;
+    }
+
+    this.redoCommand.redo();
+    this.undoCommand = this.redoCommand;
+    this.redoCommand = null;
     return true;
   }
 }

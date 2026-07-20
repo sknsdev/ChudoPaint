@@ -10,14 +10,21 @@ import {
 } from "@/editor/files/png";
 import { LayersPanel } from "@/editor/layers/LayersPanel";
 import { EditorSession } from "@/editor/session";
-import { PencilTool } from "@/editor/tools";
+import { BrushTool, EraserTool, FillTool, PencilTool } from "@/editor/tools";
+import { ToolsPanel } from "@/editor/tools/ToolsPanel";
+import type { ToolId } from "@/editor/tools/ToolsPanel";
 
 const initialDocument = createEditorDocument({
   width: 800,
   height: 600,
 });
 const editorSession = new EditorSession(initialDocument);
-const pencilTool = new PencilTool();
+const tools = {
+  pencil: new PencilTool(),
+  brush: new BrushTool(),
+  eraser: new EraserTool(),
+  fill: new FillTool(),
+};
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -27,6 +34,8 @@ function App() {
   const [documentVersion, setDocumentVersion] = useState(0);
   const [isFileOperationPending, setIsFileOperationPending] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [activeToolId, setActiveToolId] = useState<ToolId>("pencil");
+  const [, setToolSettingsVersion] = useState(0);
   const document = editorSession.document;
 
   const openPng = async (): Promise<void> => {
@@ -112,12 +121,24 @@ function App() {
 
       {statusMessage ? <p className="file-status">{statusMessage}</p> : null}
       <div className="editor-content">
-        <EditorCanvas documentVersion={documentVersion} session={editorSession} tool={pencilTool} />
-        <LayersPanel
-          document={document}
+        <EditorCanvas
+          documentVersion={documentVersion}
           session={editorSession}
-          onDocumentChange={() => setDocumentVersion((version) => version + 1)}
+          tool={tools[activeToolId]}
         />
+        <aside className="editor-sidebar" aria-label="Editor controls">
+          <ToolsPanel
+            activeTool={activeToolId}
+            session={editorSession}
+            onActiveToolChange={setActiveToolId}
+            onSettingsChange={() => setToolSettingsVersion((version) => version + 1)}
+          />
+          <LayersPanel
+            document={document}
+            session={editorSession}
+            onDocumentChange={() => setDocumentVersion((version) => version + 1)}
+          />
+        </aside>
       </div>
     </main>
   );
