@@ -1,13 +1,26 @@
+import { EditorCanvas } from "@/editor/canvas";
+import { createEditorDocument } from "@/editor/document";
+
+const initialDocument = createEditorDocument({
+  width: 800,
+  height: 600,
+});
+
 function App() {
   return (
-    <main className="welcome-screen">
-      <section className="welcome-card" aria-labelledby="app-title">
-        <p className="eyebrow">Open-source raster editor</p>
-        <h1 id="app-title">ChudoPaint</h1>
-        <p>
-          The editor foundation is ready. Canvas, documents, tools, and file operations will be
-          added in focused, reviewable iterations.
+    <main className="editor-shell">
+      <header className="app-header">
+        <div>
+          <p className="eyebrow">Open-source raster editor</p>
+          <h1>ChudoPaint</h1>
+        </div>
+        <p className="document-details">
+          {initialDocument.name} · {initialDocument.width} × {initialDocument.height} px
         </p>
+      </header>
+
+      <section className="canvas-workspace" aria-label="Editor workspace">
+        <EditorCanvas document={initialDocument} />
       </section>
     </main>
   );
