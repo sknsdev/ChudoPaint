@@ -412,7 +412,7 @@ h1 {
 
 .layer-row {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: auto 2.25rem minmax(0, 1fr) auto;
   align-items: center;
   gap: 0.35rem;
   padding: 0.35rem;
@@ -423,6 +423,20 @@ h1 {
 
 .layer-row.is-active {
   border-color: #7ea8ec;
+}
+
+.layer-row[aria-grabbed="true"] {
+  opacity: 0.6;
+}
+
+.layer-thumbnail {
+  width: 2.25rem;
+  height: 2.25rem;
+  border: 1px solid #4c5d82;
+  background-color: #cbd5e1;
+  background-image: conic-gradient(#94a3b8 25%, transparent 0 50%, #94a3b8 0 75%, transparent 0);
+  background-size: 0.5rem 0.5rem;
+  image-rendering: pixelated;
 }
 
 .layer-visibility {
@@ -491,6 +505,34 @@ h1 {
 
 .layer-settings input[type="range"] {
   width: 100%;
+}
+
+.layer-toggle-controls,
+.layer-command-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.layer-toggle-controls button,
+.layer-command-controls button {
+  padding: 0.35rem 0.5rem;
+  border: 1px solid #5d78ae;
+  border-radius: 0.25rem;
+  background: #294878;
+  color: #f8fafc;
+  cursor: pointer;
+  font-size: 0.75rem;
+}
+
+.layer-toggle-controls button[aria-pressed="true"] {
+  border-color: #a8c7ff;
+  background: #365c96;
+}
+
+.layer-command-controls button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
 }
 
 .layer-delete {

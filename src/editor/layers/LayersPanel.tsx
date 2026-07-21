@@ -1,12 +1,20 @@
-import type { KeyboardEvent } from "react";
+import { useEffect, useRef, useState } from "react";
+import type { DragEvent, KeyboardEvent } from "react";
 import type { EditorDocument } from "@/editor/document";
-
-import type { EditorSession } from "@/editor/session";
+import { shouldIgnoreEditorHotkey } from "@/editor/keyboard";
+import type { Layer } from "@/editor/layers/types";
+import type { EditorSession, LayerThumbnail } from "@/editor/session";
 
 interface LayersPanelProps {
   document: EditorDocument;
   session: EditorSession;
   onDocumentChange(): void;
+}
+
+interface LayerThumbnailProps {
+  document: EditorDocument;
+  layer: Layer;
+  session: EditorSession;
 }
 
 function layerIndex(document: EditorDocument, id: string): number {
@@ -19,7 +27,33 @@ function renameOnEnter(event: KeyboardEvent<HTMLInputElement>): void {
   }
 }
 
+function LayerThumbnailView({ document, layer, session }: LayerThumbnailProps) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) {
+      return;
+    }
+
+    const thumbnail: LayerThumbnail = session.getLayerThumbnail(layer.id);
+    canvas.width = thumbnail.width;
+    canvas.height = thumbnail.height;
+    const context = canvas.getContext("2d");
+    if (context) {
+      context.putImageData(
+        new ImageData(thumbnail.pixels, thumbnail.width, thumbnail.height),
+        0,
+        0,
+      );
+    }
+  }, [document, layer.id, session]);
+
+  return <canvas ref={canvasRef} className="layer-thumbnail" aria-hidden="true" />;
+}
+
 export function LayersPanel({ document, session, onDocumentChange }: LayersPanelProps) {
+  const [draggedLayerId, setDraggedLayerId] = useState<string | null>(null);
   const changeLayer = (change: () => boolean): void => {
     if (change()) {
       onDocumentChange();
@@ -31,6 +65,15 @@ export function LayersPanel({ document, session, onDocumentChange }: LayersPanel
     onDocumentChange();
   };
 
+  const onDrop = (event: DragEvent<HTMLLIElement>, destinationIndex: number): void => {
+    event.preventDefault();
+    const sourceId = draggedLayerId ?? event.dataTransfer.getData("text/plain");
+    if (sourceId) {
+      changeLayer(() => session.moveLayer(sourceId, destinationIndex));
+    }
+    setDraggedLayerId(null);
+  };
+
   return (
     <aside className="layers-panel" aria-labelledby="layers-heading">
       <div className="panel-heading">
@@ -40,7 +83,7 @@ export function LayersPanel({ document, session, onDocumentChange }: LayersPanel
         </button>
       </div>
 
-      <ol className="layers-list">
+      <ol className="layers-list" aria-label="Layers, top to bottom">
         {[...document.layers].reverse().map((layer) => {
           const index = layerIndex(document, layer.id);
           const isActive = layer.id === document.activeLayerId;
@@ -48,7 +91,33 @@ export function LayersPanel({ document, session, onDocumentChange }: LayersPanel
           const isBottomLayer = index === 0;
 
           return (
-            <li key={layer.id} className={isActive ? "layer-row is-active" : "layer-row"}>
+            <li
+              key={layer.id}
+              draggable
+              className={isActive ? "layer-row is-active" : "layer-row"}
+              aria-grabbed={draggedLayerId === layer.id}
+              onDragEnd={() => setDraggedLayerId(null)}
+              onDragOver={(event) => event.preventDefault()}
+              onDragStart={(event) => {
+                event.dataTransfer.effectAllowed = "move";
+                event.dataTransfer.setData("text/plain", layer.id);
+                setDraggedLayerId(layer.id);
+              }}
+              onDrop={(event) => onDrop(event, index)}
+              onKeyDown={(event) => {
+                if (shouldIgnoreEditorHotkey(event.nativeEvent) || !event.altKey) {
+                  return;
+                }
+
+                if (event.key === "ArrowUp" && !isTopLayer) {
+                  event.preventDefault();
+                  changeLayer(() => session.moveLayer(layer.id, index + 1));
+                } else if (event.key === "ArrowDown" && !isBottomLayer) {
+                  event.preventDefault();
+                  changeLayer(() => session.moveLayer(layer.id, index - 1));
+                }
+              }}
+            >
               <button
                 type="button"
                 className="layer-visibility"
@@ -60,6 +129,7 @@ export function LayersPanel({ document, session, onDocumentChange }: LayersPanel
               >
                 {layer.visible ? "●" : "○"}
               </button>
+              <LayerThumbnailView document={document} layer={layer} session={session} />
               <button
                 type="button"
                 className="layer-select"
@@ -68,11 +138,11 @@ export function LayersPanel({ document, session, onDocumentChange }: LayersPanel
               >
                 {layer.name}
               </button>
-              <div className="layer-actions">
+              <div className="layer-actions" aria-label={`${layer.name} order`}>
                 <button
                   type="button"
                   disabled={isTopLayer}
-                  title="Move layer up"
+                  title="Move layer up (Alt+Up)"
                   onClick={() => changeLayer(() => session.moveLayer(layer.id, index + 1))}
                 >
                   ↑
@@ -80,7 +150,7 @@ export function LayersPanel({ document, session, onDocumentChange }: LayersPanel
                 <button
                   type="button"
                   disabled={isBottomLayer}
-                  title="Move layer down"
+                  title="Move layer down (Alt+Down)"
                   onClick={() => changeLayer(() => session.moveLayer(layer.id, index - 1))}
                 >
                   ↓
@@ -93,6 +163,7 @@ export function LayersPanel({ document, session, onDocumentChange }: LayersPanel
                     <span>Name</span>
                     <input
                       key={layer.id}
+                      aria-label="Layer name"
                       defaultValue={layer.name}
                       onBlur={(event) =>
                         changeLayer(() => session.renameLayer(layer.id, event.currentTarget.value))
@@ -115,6 +186,49 @@ export function LayersPanel({ document, session, onDocumentChange }: LayersPanel
                       }
                     />
                   </label>
+                  <div className="layer-toggle-controls">
+                    <button
+                      type="button"
+                      aria-pressed={layer.locked}
+                      onClick={() =>
+                        changeLayer(() => session.setLayerLocked(layer.id, !layer.locked))
+                      }
+                    >
+                      {layer.locked ? "Unlock layer" : "Lock layer"}
+                    </button>
+                    <button
+                      type="button"
+                      aria-pressed={layer.lockTransparency}
+                      onClick={() =>
+                        changeLayer(() =>
+                          session.setLayerTransparencyLocked(layer.id, !layer.lockTransparency),
+                        )
+                      }
+                    >
+                      {layer.lockTransparency ? "Unlock transparency" : "Lock transparency"}
+                    </button>
+                  </div>
+                  <div className="layer-command-controls">
+                    <button
+                      type="button"
+                      disabled={isBottomLayer}
+                      onClick={() => changeLayer(() => session.mergeDown(layer.id))}
+                    >
+                      Merge down
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => changeLayer(() => session.duplicateLayer(layer.id) !== null)}
+                    >
+                      Duplicate
+                    </button>
+                    <button type="button" onClick={() => changeLayer(() => session.mergeVisible())}>
+                      Merge visible
+                    </button>
+                    <button type="button" onClick={() => changeLayer(() => session.flatten())}>
+                      Flatten
+                    </button>
+                  </div>
                   <button
                     type="button"
                     className="layer-delete"

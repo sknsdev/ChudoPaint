@@ -149,13 +149,13 @@ pointer event.
 
 ### 5.1 Layer workflow
 
-- [ ] Duplicate layer.
-- [ ] Drag-and-drop reorder с keyboard fallback.
-- [ ] Layer thumbnails и invalidation thumbnail только при изменении слоя.
-- [ ] Lock layer и lock transparency.
-- [ ] Merge down, merge visible и flatten как undoable commands.
-- [ ] Переименование через доступный inline edit.
-- [ ] Композитный preview cache и dirty rectangles.
+- [x] Duplicate layer.
+- [x] Drag-and-drop reorder с keyboard fallback.
+- [x] Layer thumbnails и invalidation thumbnail только при изменении слоя.
+- [x] Lock layer и lock transparency.
+- [x] Merge down, merge visible и flatten как undoable commands.
+- [x] Переименование через доступный inline edit.
+- [x] Композитный preview cache и dirty rectangles.
 
 ## 6. Milestone 0.4 — selection, clipboard и обмен данными
 

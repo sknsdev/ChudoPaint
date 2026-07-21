@@ -1,4 +1,4 @@
-export { compositeDocumentLayers } from "@/editor/renderer/composite";
+export { compositeDocumentLayers, compositeDocumentRegion } from "@/editor/renderer/composite";
 export type { LayerSurfaceResolver } from "@/editor/renderer/composite";
 export { clampDirtyRect, dirtyRectFromPoints, unionDirtyRects } from "@/editor/renderer/DirtyRect";
 export type { DirtyRect } from "@/editor/renderer/DirtyRect";

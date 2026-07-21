@@ -1,4 +1,5 @@
 import type { EditorDocument } from "@/editor/document";
+import type { DirtyRect } from "@/editor/renderer/DirtyRect";
 import type { RasterSurface } from "@/editor/renderer/RasterSurface";
 
 export type LayerSurfaceResolver = (layerId: string) => RasterSurface;
@@ -12,7 +13,21 @@ export function compositeDocumentLayers(
   document: EditorDocument,
   getSurface: LayerSurfaceResolver,
 ): Uint8ClampedArray {
-  const output = new Uint8ClampedArray(document.width * document.height * 4);
+  return compositeDocumentRegion(document, getSurface, {
+    x: 0,
+    y: 0,
+    width: document.width,
+    height: document.height,
+  });
+}
+
+/** Composites only a document-space rectangle for incremental preview updates. */
+export function compositeDocumentRegion(
+  document: EditorDocument,
+  getSurface: LayerSurfaceResolver,
+  region: DirtyRect,
+): Uint8ClampedArray {
+  const output = new Uint8ClampedArray(region.width * region.height * 4);
 
   for (const layer of document.layers) {
     if (!layer.visible || layer.opacity === 0) {
@@ -22,11 +37,11 @@ export function compositeDocumentLayers(
     const surface = getSurface(layer.id);
     compositeSurface(
       output,
-      document.width,
-      document.height,
+      region.width,
+      region.height,
       surface,
-      layer.offset.x,
-      layer.offset.y,
+      layer.offset.x - region.x,
+      layer.offset.y - region.y,
       layer.opacity,
     );
   }

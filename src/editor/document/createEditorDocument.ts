@@ -43,6 +43,7 @@ export function createEditorDocument(options: CreateEditorDocumentOptions): Edit
     visible: true,
     opacity: 1,
     locked: false,
+    lockTransparency: false,
     offset: { x: 0, y: 0 },
   };
 

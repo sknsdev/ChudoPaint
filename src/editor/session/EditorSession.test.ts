@@ -76,6 +76,118 @@ describe("EditorSession", () => {
     expect(session.document.layers).toHaveLength(2);
   });
 
+  it("duplicates a layer with pixels and restores it through undo and redo", () => {
+    let nextId = 0;
+    const idGenerator = (): string => `id-${++nextId}`;
+    const document = createEditorDocument({ width: 2, height: 2, idGenerator });
+    const session = new EditorSession(document, idGenerator);
+    const pencil = new PencilTool();
+
+    pencil.onPointerDown({ point: { x: 0, y: 0 }, button: 0 }, session);
+    pencil.onPointerUp({ point: { x: 0, y: 0 }, button: 0 }, session);
+    const duplicate = session.duplicateLayer(document.activeLayerId);
+
+    expect(duplicate).not.toBeNull();
+    expect(session.document.layers).toHaveLength(2);
+    expect(session.getLayerSurface(duplicate!.id).data).toEqual(
+      session.getLayerSurface(document.activeLayerId).data,
+    );
+    expect(session.undo()).toBe(true);
+    expect(session.document.layers).toHaveLength(1);
+    expect(session.redo()).toBe(true);
+    expect(session.document.layers).toHaveLength(2);
+    expect(session.getLayerSurface(duplicate!.id).data[3]).toBe(255);
+  });
+
+  it("honors layer and transparency locks", () => {
+    const document = createEditorDocument({ width: 3, height: 1 });
+    const session = new EditorSession(document);
+    const pencil = new PencilTool();
+
+    expect(session.setLayerLocked(document.activeLayerId, true)).toBe(true);
+    pencil.onPointerDown({ point: { x: 0, y: 0 }, button: 0 }, session);
+    pencil.onPointerUp({ point: { x: 0, y: 0 }, button: 0 }, session);
+    expect(session.getActiveSurface().data[3]).toBe(0);
+
+    session.setLayerLocked(document.activeLayerId, false);
+    pencil.onPointerDown({ point: { x: 0, y: 0 }, button: 0 }, session);
+    pencil.onPointerUp({ point: { x: 0, y: 0 }, button: 0 }, session);
+    session.setLayerTransparencyLocked(document.activeLayerId, true);
+    session.setColor("primary", { red: 255, green: 0, blue: 0, alpha: 255 });
+    pencil.onPointerDown({ point: { x: 1, y: 0 }, button: 0 }, session);
+    pencil.onPointerUp({ point: { x: 1, y: 0 }, button: 0 }, session);
+    pencil.onPointerDown({ point: { x: 0, y: 0 }, button: 0 }, session);
+    pencil.onPointerUp({ point: { x: 0, y: 0 }, button: 0 }, session);
+
+    expect(session.getActiveSurface().data[7]).toBe(0);
+    expect(session.getActiveSurface().data.slice(0, 4)).toEqual(
+      new Uint8ClampedArray([255, 0, 0, 255]),
+    );
+  });
+
+  it("merges layers and flattens them as undoable commands", () => {
+    let nextId = 0;
+    const idGenerator = (): string => `id-${++nextId}`;
+    const document = createEditorDocument({ width: 2, height: 2, idGenerator });
+    const session = new EditorSession(document, idGenerator);
+    const pencil = new PencilTool();
+
+    pencil.onPointerDown({ point: { x: 0, y: 0 }, button: 0 }, session);
+    pencil.onPointerUp({ point: { x: 0, y: 0 }, button: 0 }, session);
+    const topLayer = session.createLayer("Top");
+    session.setColor("primary", { red: 255, green: 0, blue: 0, alpha: 255 });
+    pencil.onPointerDown({ point: { x: 0, y: 0 }, button: 0 }, session);
+    pencil.onPointerUp({ point: { x: 0, y: 0 }, button: 0 }, session);
+
+    expect(session.mergeDown(topLayer.id)).toBe(true);
+    expect(session.document.layers).toHaveLength(1);
+    expect(session.getActiveSurface().data.slice(0, 4)).toEqual(
+      new Uint8ClampedArray([255, 0, 0, 255]),
+    );
+    expect(session.undo()).toBe(true);
+    expect(session.document.layers).toHaveLength(2);
+    expect(session.redo()).toBe(true);
+    session.createLayer("Overlay");
+    expect(session.flatten()).toBe(true);
+    expect(session.document.layers).toHaveLength(1);
+    expect(session.undo()).toBe(true);
+    expect(session.document.layers).toHaveLength(2);
+  });
+
+  it("merges visible layers as an undoable command", () => {
+    let nextId = 0;
+    const idGenerator = (): string => `id-${++nextId}`;
+    const document = createEditorDocument({ width: 2, height: 2, idGenerator });
+    const session = new EditorSession(document, idGenerator);
+
+    session.createLayer("Top");
+    expect(session.mergeVisible()).toBe(true);
+    expect(session.document.layers).toHaveLength(1);
+    expect(session.undo()).toBe(true);
+    expect(session.document.layers).toHaveLength(2);
+  });
+
+  it("invalidates only the changed layer thumbnail", () => {
+    let nextId = 0;
+    const idGenerator = (): string => `id-${++nextId}`;
+    const document = createEditorDocument({ width: 2, height: 2, idGenerator });
+    const session = new EditorSession(document, idGenerator);
+    const pencil = new PencilTool();
+    const baseThumbnail = session.getLayerThumbnail(document.activeLayerId);
+    const topLayer = session.createLayer("Top");
+    const initialTopThumbnail = session.getLayerThumbnail(topLayer.id);
+
+    expect(session.getLayerThumbnail(topLayer.id)).toBe(initialTopThumbnail);
+    pencil.onPointerDown({ point: { x: 0, y: 0 }, button: 0 }, session);
+    pencil.onPointerUp({ point: { x: 0, y: 0 }, button: 0 }, session);
+    const updatedTopThumbnail = session.getLayerThumbnail(topLayer.id);
+
+    expect(updatedTopThumbnail).not.toBe(initialTopThumbnail);
+    expect(updatedTopThumbnail.pixels[3]).toBe(255);
+    expect(session.getLayerThumbnail(session.document.activeLayerId)).toBe(updatedTopThumbnail);
+    expect(session.getLayerThumbnail(document.layers[0].id)).toBe(baseThumbnail);
+  });
+
   it("samples colors from the active layer or composite", () => {
     let nextId = 0;
     const idGenerator = (): string => `id-${++nextId}`;
@@ -105,7 +217,7 @@ describe("EditorSession", () => {
     expect(() => session.setFillTolerance(256)).toThrow(RangeError);
   });
 
-  it("invalidates the composite cache after a raster command", () => {
+  it("updates cached composite pixels after a raster command", () => {
     const document = createEditorDocument({
       width: 2,
       height: 2,
@@ -122,7 +234,7 @@ describe("EditorSession", () => {
     pencil.onPointerUp({ point: { x: 0, y: 0 }, button: 0 }, session);
 
     const updatedComposite = session.getCompositePixels();
-    expect(updatedComposite).not.toBe(initialComposite);
+    expect(updatedComposite).toBe(initialComposite);
     expect(updatedComposite[3]).toBe(255);
   });
 });

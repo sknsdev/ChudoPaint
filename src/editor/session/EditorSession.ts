@@ -7,6 +7,7 @@ import type { Layer } from "@/editor/layers/types";
 import {
   clampDirtyRect,
   compositeDocumentLayers,
+  compositeDocumentRegion,
   dirtyRectFromPoints,
   unionDirtyRects,
 } from "@/editor/renderer";
@@ -18,6 +19,8 @@ import type { Point } from "@/editor/viewport";
 interface ActiveRasterStroke {
   surface: RasterSurface;
   label: string;
+  layerId: string;
+  lockTransparency: boolean;
   originalPixels: Map<number, number>;
   dirtyRect: DirtyRect | null;
   changed: boolean;
@@ -32,6 +35,16 @@ interface RasterPatch {
   rect: DirtyRect;
   before: Uint8ClampedArray;
   after: Uint8ClampedArray;
+}
+
+export interface LayerThumbnail {
+  width: number;
+  height: number;
+  pixels: Uint8ClampedArray;
+}
+
+interface CachedLayerThumbnail extends LayerThumbnail {
+  revision: number;
 }
 
 function createLayerId(): string {
@@ -73,6 +86,9 @@ export class EditorSession implements ToolContext {
   private readonly history: CommandHistory;
   private activeStroke: ActiveRasterStroke | null = null;
   private compositeCache: Uint8ClampedArray | null = null;
+  private compositeDirtyRect: DirtyRect | null = null;
+  private readonly layerSurfaceRevisions = new Map<string, number>();
+  private readonly layerThumbnails = new Map<string, CachedLayerThumbnail>();
   private currentColors = { ...DEFAULT_COLORS };
   private currentBrushSettings = { ...DEFAULT_BRUSH_SETTINGS };
   private fillTolerance = DEFAULT_FILL_TOLERANCE;
@@ -88,6 +104,7 @@ export class EditorSession implements ToolContext {
 
     for (const layer of document.layers) {
       this.surfaces.set(layer.id, new RasterSurface(document.width, document.height));
+      this.layerSurfaceRevisions.set(layer.id, 0);
     }
   }
 
@@ -111,11 +128,14 @@ export class EditorSession implements ToolContext {
 
     this.activeStroke = null;
     this.surfaces.clear();
+    this.layerSurfaceRevisions.clear();
+    this.layerThumbnails.clear();
     this.currentDocument = document;
     this.surfaces.set(
       document.activeLayerId,
       new RasterSurface(document.width, document.height, new Uint8ClampedArray(rgba)),
     );
+    this.layerSurfaceRevisions.set(document.activeLayerId, 0);
     this.history.clear();
     this.rememberSourceFile(document.sourceFile);
     this.invalidateComposite();
@@ -220,6 +240,7 @@ export class EditorSession implements ToolContext {
       visible: true,
       opacity: 1,
       locked: false,
+      lockTransparency: false,
       offset: { x: 0, y: 0 },
     };
 
@@ -227,6 +248,7 @@ export class EditorSession implements ToolContext {
       id,
       new RasterSurface(this.currentDocument.width, this.currentDocument.height),
     );
+    this.layerSurfaceRevisions.set(id, 0);
     this.applyLayerDocument({
       ...this.currentDocument,
       layers: [...this.currentDocument.layers, layer],
@@ -234,6 +256,41 @@ export class EditorSession implements ToolContext {
     });
     this.pushLayerCommand("Add layer", before);
     return layer;
+  }
+
+  duplicateLayer(id: string): Layer | null {
+    const sourceIndex = this.findLayerIndex(id);
+    if (sourceIndex === -1) {
+      return null;
+    }
+
+    const sourceLayer = this.currentDocument.layers[sourceIndex];
+    const duplicateId = this.idGenerator();
+    if (duplicateId.trim().length === 0 || this.surfaces.has(duplicateId)) {
+      throw new Error("Layer ID generator returned an invalid or duplicate ID.");
+    }
+
+    const before = this.captureLayerState(true);
+    const duplicate: Layer = {
+      ...sourceLayer,
+      id: duplicateId,
+      name: `Copy of ${sourceLayer.name}`,
+      offset: { ...sourceLayer.offset },
+    };
+    this.surfaces.set(
+      duplicateId,
+      new RasterSurface(
+        this.currentDocument.width,
+        this.currentDocument.height,
+        this.getLayerSurface(id).clonePixels(),
+      ),
+    );
+    this.layerSurfaceRevisions.set(duplicateId, 0);
+    const layers = [...this.currentDocument.layers];
+    layers.splice(sourceIndex + 1, 0, duplicate);
+    this.applyLayerDocument({ ...this.currentDocument, layers, activeLayerId: duplicateId });
+    this.pushLayerCommand("Duplicate layer", before, true);
+    return duplicate;
   }
 
   deleteLayer(id: string): boolean {
@@ -254,6 +311,8 @@ export class EditorSession implements ToolContext {
         : this.currentDocument.activeLayerId;
 
     this.surfaces.delete(id);
+    this.layerSurfaceRevisions.delete(id);
+    this.deleteLayerThumbnails(id);
     this.applyLayerDocument({
       ...this.currentDocument,
       layers,
@@ -288,6 +347,17 @@ export class EditorSession implements ToolContext {
     return this.updateLayer("Toggle layer visibility", id, (layer) => ({ ...layer, visible }));
   }
 
+  setLayerLocked(id: string, locked: boolean): boolean {
+    return this.updateLayer("Toggle layer lock", id, (layer) => ({ ...layer, locked }));
+  }
+
+  setLayerTransparencyLocked(id: string, lockTransparency: boolean): boolean {
+    return this.updateLayer("Toggle transparency lock", id, (layer) => ({
+      ...layer,
+      lockTransparency,
+    }));
+  }
+
   setLayerOpacity(id: string, opacity: number): boolean {
     if (!Number.isFinite(opacity) || opacity < 0 || opacity > 1) {
       throw new RangeError(`Layer opacity must be between 0 and 1. Received: ${opacity}.`);
@@ -319,11 +389,151 @@ export class EditorSession implements ToolContext {
     return true;
   }
 
+  mergeDown(id = this.currentDocument.activeLayerId): boolean {
+    const sourceIndex = this.findLayerIndex(id);
+    if (sourceIndex <= 0) {
+      return false;
+    }
+
+    const lowerLayer = this.currentDocument.layers[sourceIndex - 1];
+    const activeLayer = this.currentDocument.layers[sourceIndex];
+    const before = this.captureLayerState(true);
+    const pixels = compositeDocumentLayers(
+      { ...this.currentDocument, layers: [lowerLayer, activeLayer] },
+      (layerId) => this.getLayerSurface(layerId),
+    );
+    this.surfaces.set(
+      lowerLayer.id,
+      new RasterSurface(this.currentDocument.width, this.currentDocument.height, pixels),
+    );
+    this.markLayerPixelsChanged(lowerLayer.id);
+    this.surfaces.delete(activeLayer.id);
+    this.layerSurfaceRevisions.delete(activeLayer.id);
+    this.deleteLayerThumbnails(activeLayer.id);
+    const layers = this.currentDocument.layers
+      .filter((layer) => layer.id !== activeLayer.id)
+      .map((layer) =>
+        layer.id === lowerLayer.id
+          ? {
+              ...layer,
+              visible: lowerLayer.visible || activeLayer.visible,
+              opacity: 1,
+              offset: { x: 0, y: 0 },
+            }
+          : layer,
+      );
+    this.applyLayerDocument({ ...this.currentDocument, layers, activeLayerId: lowerLayer.id });
+    this.pushLayerCommand("Merge down", before, true);
+    return true;
+  }
+
+  mergeVisible(): boolean {
+    const visibleLayers = this.currentDocument.layers.filter((layer) => layer.visible);
+    if (visibleLayers.length < 2) {
+      return false;
+    }
+
+    const before = this.captureLayerState(true);
+    const id = this.idGenerator();
+    if (id.trim().length === 0 || this.surfaces.has(id)) {
+      throw new Error("Layer ID generator returned an invalid or duplicate ID.");
+    }
+    const pixels = this.getCompositePixels().slice();
+    const mergedLayer: Layer = {
+      id,
+      kind: "raster",
+      name: "Merged visible",
+      visible: true,
+      opacity: 1,
+      locked: false,
+      lockTransparency: false,
+      offset: { x: 0, y: 0 },
+    };
+    const insertionIndex = Math.max(...visibleLayers.map((layer) => this.findLayerIndex(layer.id)));
+    const visibleIds = new Set(visibleLayers.map((layer) => layer.id));
+    const layers = this.currentDocument.layers.filter((layer) => !visibleIds.has(layer.id));
+    layers.splice(
+      insertionIndex -
+        visibleLayers.filter((layer) => this.findLayerIndex(layer.id) < insertionIndex).length,
+      0,
+      mergedLayer,
+    );
+    for (const layer of visibleLayers) {
+      this.surfaces.delete(layer.id);
+      this.layerSurfaceRevisions.delete(layer.id);
+      this.deleteLayerThumbnails(layer.id);
+    }
+    this.surfaces.set(
+      id,
+      new RasterSurface(this.currentDocument.width, this.currentDocument.height, pixels),
+    );
+    this.layerSurfaceRevisions.set(id, 0);
+    this.applyLayerDocument({ ...this.currentDocument, layers, activeLayerId: id });
+    this.pushLayerCommand("Merge visible", before, true);
+    return true;
+  }
+
+  flatten(): boolean {
+    if (this.currentDocument.layers.length === 1) {
+      return false;
+    }
+
+    const before = this.captureLayerState(true);
+    const id = this.idGenerator();
+    if (id.trim().length === 0 || this.surfaces.has(id)) {
+      throw new Error("Layer ID generator returned an invalid or duplicate ID.");
+    }
+    const flattenedLayer: Layer = {
+      id,
+      kind: "raster",
+      name: "Flattened",
+      visible: true,
+      opacity: 1,
+      locked: false,
+      lockTransparency: false,
+      offset: { x: 0, y: 0 },
+    };
+    const pixels = this.getCompositePixels().slice();
+    this.surfaces.clear();
+    this.layerSurfaceRevisions.clear();
+    this.layerThumbnails.clear();
+    this.surfaces.set(
+      id,
+      new RasterSurface(this.currentDocument.width, this.currentDocument.height, pixels),
+    );
+    this.layerSurfaceRevisions.set(id, 0);
+    this.applyLayerDocument({
+      ...this.currentDocument,
+      layers: [flattenedLayer],
+      activeLayerId: id,
+    });
+    this.pushLayerCommand("Flatten image", before, true);
+    return true;
+  }
+
   getCompositePixels(): Uint8ClampedArray {
     if (!this.compositeCache) {
       this.compositeCache = compositeDocumentLayers(this.currentDocument, (layerId) =>
         this.getLayerSurface(layerId),
       );
+      this.compositeDirtyRect = null;
+    } else if (this.compositeDirtyRect) {
+      const dirtyRect = this.compositeDirtyRect;
+      const pixels = compositeDocumentRegion(
+        this.currentDocument,
+        (layerId) => this.getLayerSurface(layerId),
+        dirtyRect,
+      );
+      for (let row = 0; row < dirtyRect.height; row += 1) {
+        const sourceOffset = row * dirtyRect.width * 4;
+        const destinationOffset =
+          ((dirtyRect.y + row) * this.currentDocument.width + dirtyRect.x) * 4;
+        this.compositeCache.set(
+          pixels.subarray(sourceOffset, sourceOffset + dirtyRect.width * 4),
+          destinationOffset,
+        );
+      }
+      this.compositeDirtyRect = null;
     }
 
     return this.compositeCache;
@@ -342,6 +552,38 @@ export class EditorSession implements ToolContext {
     return this.getLayerSurface(this.currentDocument.activeLayerId);
   }
 
+  getLayerThumbnail(id: string, maxSize = 48): LayerThumbnail {
+    if (!Number.isInteger(maxSize) || maxSize < 1) {
+      throw new RangeError(`Thumbnail size must be a positive integer. Received: ${maxSize}.`);
+    }
+
+    const surface = this.getLayerSurface(id);
+    const revision = this.layerSurfaceRevisions.get(id) ?? 0;
+    const cacheKey = `${id}:${maxSize}`;
+    const cached = this.layerThumbnails.get(cacheKey);
+    if (cached?.revision === revision) {
+      return cached;
+    }
+
+    const scale = Math.min(maxSize / surface.width, maxSize / surface.height, 1);
+    const width = Math.max(1, Math.round(surface.width * scale));
+    const height = Math.max(1, Math.round(surface.height * scale));
+    const pixels = new Uint8ClampedArray(width * height * 4);
+    for (let y = 0; y < height; y += 1) {
+      const sourceY = Math.min(surface.height - 1, Math.floor((y / height) * surface.height));
+      for (let x = 0; x < width; x += 1) {
+        const sourceX = Math.min(surface.width - 1, Math.floor((x / width) * surface.width));
+        const sourceOffset = (sourceY * surface.width + sourceX) * 4;
+        const destinationOffset = (y * width + x) * 4;
+        pixels.set(surface.data.subarray(sourceOffset, sourceOffset + 4), destinationOffset);
+      }
+    }
+
+    const thumbnail = { width, height, pixels, revision };
+    this.layerThumbnails.set(cacheKey, thumbnail);
+    return thumbnail;
+  }
+
   beginRasterStroke(label: string): void {
     if (this.activeStroke) {
       throw new Error("A raster stroke is already active.");
@@ -357,6 +599,8 @@ export class EditorSession implements ToolContext {
     this.activeStroke = {
       surface: this.getActiveSurface(),
       label,
+      layerId: layer.id,
+      lockTransparency: layer.lockTransparency,
       originalPixels: new Map(),
       dirtyRect: null,
       changed: false,
@@ -402,7 +646,7 @@ export class EditorSession implements ToolContext {
     const stroke = this.activeStroke;
     this.activeStroke = null;
 
-    if (!stroke.changed || !stroke.dirtyRect) {
+    if (!stroke.changed || !stroke.dirtyRect || !this.hasStrokeChanges(stroke)) {
       return false;
     }
 
@@ -410,6 +654,7 @@ export class EditorSession implements ToolContext {
     this.history.push(
       new RasterPatchCommand(stroke.label, stroke.surface, patch.rect, patch.before, patch.after),
     );
+    this.markLayerPixelsChanged(stroke.layerId);
     this.currentDocument = markDocumentDirty(this.currentDocument);
     return true;
   }
@@ -421,9 +666,8 @@ export class EditorSession implements ToolContext {
 
     const stroke = this.activeStroke;
     this.activeStroke = null;
-    if (stroke.changed && stroke.dirtyRect) {
-      const patch = this.createPatch(stroke);
-      stroke.surface.restoreRect(patch.rect, patch.before);
+    if (stroke.changed) {
+      this.restoreOriginalPixels(stroke);
       this.invalidateComposite();
     }
   }
@@ -458,9 +702,12 @@ export class EditorSession implements ToolContext {
 
     this.captureOriginalPixels(this.activeStroke, dirtyRect);
     const changed = operation(this.activeStroke.surface);
+    if (this.activeStroke.lockTransparency) {
+      this.restoreTransparentPixels(this.activeStroke);
+    }
     this.activeStroke.changed = this.activeStroke.changed || changed;
     if (changed) {
-      this.invalidateComposite();
+      this.invalidateComposite(dirtyRect);
     }
     return changed;
   }
@@ -481,6 +728,21 @@ export class EditorSession implements ToolContext {
     }
 
     stroke.dirtyRect = unionDirtyRects(stroke.dirtyRect, clipped);
+  }
+
+  private hasStrokeChanges(stroke: ActiveRasterStroke): boolean {
+    for (const [pixelIndex, packed] of stroke.originalPixels) {
+      if (packPixel(stroke.surface.data, pixelIndex * 4) !== packed) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private restoreOriginalPixels(stroke: ActiveRasterStroke): void {
+    for (const [pixelIndex, packed] of stroke.originalPixels) {
+      unpackPixel(stroke.surface.data, pixelIndex * 4, packed);
+    }
   }
 
   private createPatch(stroke: ActiveRasterStroke): RasterPatch {
@@ -520,8 +782,42 @@ export class EditorSession implements ToolContext {
     return { rect: changedRect, before, after };
   }
 
-  private invalidateComposite(): void {
-    this.compositeCache = null;
+  private restoreTransparentPixels(stroke: ActiveRasterStroke): void {
+    for (const [pixelIndex, packed] of stroke.originalPixels) {
+      if (((packed >>> 24) & 0xff) === 0) {
+        unpackPixel(stroke.surface.data, pixelIndex * 4, packed);
+      }
+    }
+  }
+
+  private markLayerPixelsChanged(id: string): void {
+    this.layerSurfaceRevisions.set(id, (this.layerSurfaceRevisions.get(id) ?? 0) + 1);
+    this.deleteLayerThumbnails(id);
+  }
+
+  private deleteLayerThumbnails(id: string): void {
+    for (const key of this.layerThumbnails.keys()) {
+      if (key.startsWith(`${id}:`)) {
+        this.layerThumbnails.delete(key);
+      }
+    }
+  }
+
+  private invalidateComposite(dirtyRect?: DirtyRect): void {
+    if (!this.compositeCache || !dirtyRect) {
+      this.compositeCache = null;
+      this.compositeDirtyRect = null;
+      return;
+    }
+
+    const clipped = clampDirtyRect(
+      dirtyRect,
+      this.currentDocument.width,
+      this.currentDocument.height,
+    );
+    if (clipped) {
+      this.compositeDirtyRect = unionDirtyRects(this.compositeDirtyRect, clipped);
+    }
   }
 
   private rememberSourceFile(sourceFile: SourceFileMetadata | null): void {
@@ -567,18 +863,28 @@ export class EditorSession implements ToolContext {
     return true;
   }
 
-  private captureLayerState(): LayerState {
+  private captureLayerState(copyPixels = false): LayerState {
     return {
       document: this.currentDocument,
-      surfaces: new Map(this.surfaces),
+      surfaces: new Map(
+        [...this.surfaces].map(([id, surface]) => [
+          id,
+          copyPixels
+            ? new RasterSurface(surface.width, surface.height, surface.clonePixels())
+            : surface,
+        ]),
+      ),
     };
   }
 
   private restoreLayerState(state: LayerState): void {
     this.currentDocument = state.document;
     this.surfaces.clear();
+    this.layerSurfaceRevisions.clear();
+    this.layerThumbnails.clear();
     for (const [id, surface] of state.surfaces) {
       this.surfaces.set(id, surface);
+      this.layerSurfaceRevisions.set(id, 0);
     }
     this.invalidateComposite();
   }
@@ -589,8 +895,8 @@ export class EditorSession implements ToolContext {
     this.invalidateComposite();
   }
 
-  private pushLayerCommand(label: string, before: LayerState): void {
-    const after = this.captureLayerState();
+  private pushLayerCommand(label: string, before: LayerState, copyPixels = false): void {
+    const after = this.captureLayerState(copyPixels);
     this.history.push(
       new CallbackCommand(
         label,

@@ -6,6 +6,7 @@ export interface Layer {
   visible: boolean;
   opacity: number;
   locked: boolean;
+  lockTransparency: boolean;
   offset: LayerOffset;
 }
 
