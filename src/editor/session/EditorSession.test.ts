@@ -57,6 +57,25 @@ describe("EditorSession", () => {
     expect(session.deleteLayer(firstLayerId)).toBe(false);
   });
 
+  it("undoes layer metadata commands", () => {
+    let nextId = 0;
+    const idGenerator = (): string => `id-${++nextId}`;
+    const document = createEditorDocument({ width: 2, height: 2, idGenerator });
+    const session = new EditorSession(document, idGenerator);
+    const layer = session.createLayer("Paint");
+
+    session.renameLayer(layer.id, "Details");
+    expect(session.document.layers).toHaveLength(2);
+    expect(session.document.layers.at(-1)?.name).toBe("Details");
+
+    expect(session.undo()).toBe(true);
+    expect(session.document.layers.at(-1)?.name).toBe("Paint");
+    expect(session.undo()).toBe(true);
+    expect(session.document.layers).toHaveLength(1);
+    expect(session.redo()).toBe(true);
+    expect(session.document.layers).toHaveLength(2);
+  });
+
   it("invalidates the composite cache after a raster command", () => {
     const document = createEditorDocument({
       width: 2,

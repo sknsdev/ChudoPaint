@@ -109,14 +109,14 @@ src-tauri/src/
 
 ### 4.1 Полная история операций
 
-- [ ] Несколько undo/redo операций, а не один уровень.
-- [ ] Clear redo после новой команды.
-- [ ] `Command.label` для будущей UI-истории и доступности.
-- [ ] Patch history: хранить изменённую область `before/after` вместо полного
+- [x] Несколько undo/redo операций, а не один уровень.
+- [x] Clear redo после новой команды.
+- [x] `Command.label` для будущей UI-истории и доступности.
+- [x] Patch history: хранить изменённую область `before/after` вместо полного
   слоя для pencil, brush, eraser и fill.
-- [ ] История layer commands: add, delete, rename, reorder, visibility, opacity.
-- [ ] Memory budget, очистка старых команд и отображение занятой памяти.
-- [ ] Отмена незавершённого инструмента без попадания в историю.
+- [x] История layer commands: add, delete, rename, reorder, visibility, opacity.
+- [x] Memory budget, очистка старых команд и отображение занятой памяти.
+- [x] Отмена незавершённого инструмента без попадания в историю.
 - [ ] Unit-тесты undo/redo, redo invalidation и memory limit.
 
 **Definition of done:** 100 последовательных мазков на документе 1920×1080

@@ -1,6 +1,6 @@
 import { markDocumentDirty, markDocumentSaved } from "@/editor/document";
-import { RasterPatchCommand } from "@/editor/history/RasterPatchCommand";
-import { SingleStepHistory } from "@/editor/history/SingleStepHistory";
+import { CallbackCommand, CommandHistory, RasterPatchCommand } from "@/editor/history";
+import type { HistoryInfo } from "@/editor/history";
 import type { EditorDocument } from "@/editor/document";
 import type { Layer } from "@/editor/layers/types";
 import {
@@ -20,6 +20,17 @@ interface ActiveRasterStroke {
   originalPixels: Map<number, number>;
   dirtyRect: DirtyRect | null;
   changed: boolean;
+}
+
+interface LayerState {
+  document: EditorDocument;
+  surfaces: Map<string, RasterSurface>;
+}
+
+interface RasterPatch {
+  rect: DirtyRect;
+  before: Uint8ClampedArray;
+  after: Uint8ClampedArray;
 }
 
 function createLayerId(): string {
@@ -57,7 +68,7 @@ const DEFAULT_BRUSH_SETTINGS: BrushSettings = {
 export class EditorSession implements ToolContext {
   private currentDocument: EditorDocument;
   private readonly surfaces = new Map<string, RasterSurface>();
-  private readonly history = new SingleStepHistory();
+  private readonly history: CommandHistory;
   private activeStroke: ActiveRasterStroke | null = null;
   private compositeCache: Uint8ClampedArray | null = null;
   private currentColors = { ...DEFAULT_COLORS };
@@ -66,8 +77,10 @@ export class EditorSession implements ToolContext {
   constructor(
     document: EditorDocument,
     private readonly idGenerator: () => string = createLayerId,
+    historyBudgetBytes?: number,
   ) {
     this.currentDocument = document;
+    this.history = new CommandHistory(historyBudgetBytes);
 
     for (const layer of document.layers) {
       this.surfaces.set(layer.id, new RasterSurface(document.width, document.height));
@@ -76,6 +89,10 @@ export class EditorSession implements ToolContext {
 
   get document(): EditorDocument {
     return this.currentDocument;
+  }
+
+  get historyInfo(): HistoryInfo {
+    return this.history.info;
   }
 
   replaceDocument(document: EditorDocument, rgba: Uint8ClampedArray): void {
@@ -150,6 +167,7 @@ export class EditorSession implements ToolContext {
   }
 
   createLayer(name = `Layer ${this.currentDocument.layers.length + 1}`): Layer {
+    const before = this.captureLayerState();
     const id = this.idGenerator();
     if (id.trim().length === 0 || this.surfaces.has(id)) {
       throw new Error("Layer ID generator returned an invalid or duplicate ID.");
@@ -169,11 +187,12 @@ export class EditorSession implements ToolContext {
       id,
       new RasterSurface(this.currentDocument.width, this.currentDocument.height),
     );
-    this.replaceDocumentMetadata({
+    this.applyLayerDocument({
       ...this.currentDocument,
       layers: [...this.currentDocument.layers, layer],
       activeLayerId: id,
     });
+    this.pushLayerCommand("Add layer", before);
     return layer;
   }
 
@@ -187,6 +206,7 @@ export class EditorSession implements ToolContext {
       return false;
     }
 
+    const before = this.captureLayerState();
     const layers = this.currentDocument.layers.filter((layer) => layer.id !== id);
     const activeLayerId =
       id === this.currentDocument.activeLayerId
@@ -194,11 +214,12 @@ export class EditorSession implements ToolContext {
         : this.currentDocument.activeLayerId;
 
     this.surfaces.delete(id);
-    this.replaceDocumentMetadata({
+    this.applyLayerDocument({
       ...this.currentDocument,
       layers,
       activeLayerId,
     });
+    this.pushLayerCommand("Delete layer", before);
     return true;
   }
 
@@ -220,11 +241,11 @@ export class EditorSession implements ToolContext {
       return false;
     }
 
-    return this.updateLayer(id, (layer) => ({ ...layer, name: nextName }));
+    return this.updateLayer("Rename layer", id, (layer) => ({ ...layer, name: nextName }));
   }
 
   setLayerVisibility(id: string, visible: boolean): boolean {
-    return this.updateLayer(id, (layer) => ({ ...layer, visible }));
+    return this.updateLayer("Toggle layer visibility", id, (layer) => ({ ...layer, visible }));
   }
 
   setLayerOpacity(id: string, opacity: number): boolean {
@@ -232,7 +253,7 @@ export class EditorSession implements ToolContext {
       throw new RangeError(`Layer opacity must be between 0 and 1. Received: ${opacity}.`);
     }
 
-    return this.updateLayer(id, (layer) => ({ ...layer, opacity }));
+    return this.updateLayer("Change layer opacity", id, (layer) => ({ ...layer, opacity }));
   }
 
   moveLayer(id: string, destinationIndex: number): boolean {
@@ -246,13 +267,15 @@ export class EditorSession implements ToolContext {
       return false;
     }
 
+    const before = this.captureLayerState();
     const layers = [...this.currentDocument.layers];
     const [layer] = layers.splice(sourceIndex, 1);
     layers.splice(destinationIndex, 0, layer);
-    this.replaceDocumentMetadata({
+    this.applyLayerDocument({
       ...this.currentDocument,
       layers,
     });
+    this.pushLayerCommand("Reorder layers", before);
     return true;
   }
 
@@ -345,13 +368,7 @@ export class EditorSession implements ToolContext {
 
     const patch = this.createPatch(stroke);
     this.history.push(
-      new RasterPatchCommand(
-        stroke.label,
-        stroke.surface,
-        stroke.dirtyRect,
-        patch.before,
-        patch.after,
-      ),
+      new RasterPatchCommand(stroke.label, stroke.surface, patch.rect, patch.before, patch.after),
     );
     this.currentDocument = markDocumentDirty(this.currentDocument);
     return true;
@@ -366,7 +383,7 @@ export class EditorSession implements ToolContext {
     this.activeStroke = null;
     if (stroke.changed && stroke.dirtyRect) {
       const patch = this.createPatch(stroke);
-      stroke.surface.restoreRect(stroke.dirtyRect, patch.before);
+      stroke.surface.restoreRect(patch.rect, patch.before);
       this.invalidateComposite();
     }
   }
@@ -426,25 +443,41 @@ export class EditorSession implements ToolContext {
     stroke.dirtyRect = unionDirtyRects(stroke.dirtyRect, clipped);
   }
 
-  private createPatch(stroke: ActiveRasterStroke): {
-    before: Uint8ClampedArray;
-    after: Uint8ClampedArray;
-  } {
-    if (!stroke.dirtyRect) {
-      throw new Error("Cannot create a raster patch without a dirty rectangle.");
+  private createPatch(stroke: ActiveRasterStroke): RasterPatch {
+    let changedRect: DirtyRect | null = null;
+    for (const [pixelIndex, packed] of stroke.originalPixels) {
+      if (packPixel(stroke.surface.data, pixelIndex * 4) === packed) {
+        continue;
+      }
+
+      const x = pixelIndex % stroke.surface.width;
+      const y = Math.floor(pixelIndex / stroke.surface.width);
+      changedRect = unionDirtyRects(changedRect, { x, y, width: 1, height: 1 });
     }
 
-    const after = stroke.surface.copyRect(stroke.dirtyRect);
+    if (!changedRect) {
+      throw new Error("Cannot create a raster patch without changed pixels.");
+    }
+
+    const after = stroke.surface.copyRect(changedRect);
     const before = new Uint8ClampedArray(after);
     for (const [pixelIndex, packed] of stroke.originalPixels) {
       const x = pixelIndex % stroke.surface.width;
       const y = Math.floor(pixelIndex / stroke.surface.width);
-      const localOffset =
-        ((y - stroke.dirtyRect.y) * stroke.dirtyRect.width + x - stroke.dirtyRect.x) * 4;
+      if (
+        x < changedRect.x ||
+        y < changedRect.y ||
+        x >= changedRect.x + changedRect.width ||
+        y >= changedRect.y + changedRect.height
+      ) {
+        continue;
+      }
+
+      const localOffset = ((y - changedRect.y) * changedRect.width + x - changedRect.x) * 4;
       unpackPixel(before, localOffset, packed);
     }
 
-    return { before, after };
+    return { rect: changedRect, before, after };
   }
 
   private invalidateComposite(): void {
@@ -455,7 +488,7 @@ export class EditorSession implements ToolContext {
     return this.currentDocument.layers.findIndex((layer) => layer.id === id);
   }
 
-  private updateLayer(id: string, update: (layer: Layer) => Layer): boolean {
+  private updateLayer(label: string, id: string, update: (layer: Layer) => Layer): boolean {
     let didChange = false;
     const layers = this.currentDocument.layers.map((layer) => {
       if (layer.id !== id) {
@@ -471,17 +504,46 @@ export class EditorSession implements ToolContext {
       return false;
     }
 
-    this.replaceDocumentMetadata({
+    const before = this.captureLayerState();
+    this.applyLayerDocument({
       ...this.currentDocument,
       layers,
     });
+    this.pushLayerCommand(label, before);
     return true;
   }
 
-  private replaceDocumentMetadata(document: EditorDocument): void {
+  private captureLayerState(): LayerState {
+    return {
+      document: this.currentDocument,
+      surfaces: new Map(this.surfaces),
+    };
+  }
+
+  private restoreLayerState(state: LayerState): void {
+    this.currentDocument = state.document;
+    this.surfaces.clear();
+    for (const [id, surface] of state.surfaces) {
+      this.surfaces.set(id, surface);
+    }
+    this.invalidateComposite();
+  }
+
+  private applyLayerDocument(document: EditorDocument): void {
     this.cancelRasterStroke();
     this.currentDocument = markDocumentDirty(document);
-    this.history.clear();
     this.invalidateComposite();
+  }
+
+  private pushLayerCommand(label: string, before: LayerState): void {
+    const after = this.captureLayerState();
+    this.history.push(
+      new CallbackCommand(
+        label,
+        0,
+        () => this.restoreLayerState(before),
+        () => this.restoreLayerState(after),
+      ),
+    );
   }
 }

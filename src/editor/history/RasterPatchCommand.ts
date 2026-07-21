@@ -3,16 +3,16 @@ import type { DirtyRect } from "@/editor/renderer/DirtyRect";
 import type { RasterSurface } from "@/editor/renderer/RasterSurface";
 
 export class RasterPatchCommand implements Command {
-  readonly label: string;
+  readonly byteSize: number;
 
   constructor(
-    label: string,
+    readonly label: string,
     private readonly surface: RasterSurface,
     private readonly rect: DirtyRect,
     private readonly before: Uint8ClampedArray,
     private readonly after: Uint8ClampedArray,
   ) {
-    this.label = label;
+    this.byteSize = before.byteLength + after.byteLength;
   }
 
   undo(): void {

@@ -36,6 +36,12 @@ function clampZoom(zoom: number): number {
   return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom));
 }
 
+function formatHistoryBytes(bytes: number): string {
+  return bytes < 1024 * 1024
+    ? `${Math.ceil(bytes / 1024)} KiB`
+    : `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
+}
+
 function drawCheckerboard(context: CanvasRenderingContext2D, width: number, height: number): void {
   const tileSize = CHECKERBOARD_CELL_SIZE * 2;
   const tile = globalThis.document.createElement("canvas");
@@ -96,6 +102,7 @@ export function EditorCanvas({ documentVersion, session, tool }: EditorCanvasPro
   const [viewport, setViewport] = useState<Viewport>(() => createViewport());
   const [revision, setRevision] = useState(0);
   const document = session.document;
+  const historyInfo = session.historyInfo;
 
   const fitToScreen = useCallback((): void => {
     const workspace = workspaceRef.current;
@@ -415,7 +422,11 @@ export function EditorCanvas({ documentVersion, session, tool }: EditorCanvasPro
         >
           100%
         </button>
-        <span>{Math.round(viewport.zoom * 100)}% · Ctrl/Cmd+Z undo · Ctrl/Cmd+Shift+Z redo</span>
+        <span>
+          {Math.round(viewport.zoom * 100)}% · Undo {historyInfo.undoCount} · Redo{" "}
+          {historyInfo.redoCount} · {formatHistoryBytes(historyInfo.usedBytes)} · Ctrl/Cmd+Z undo ·
+          Ctrl/Cmd+Shift+Z redo
+        </span>
       </div>
     </div>
   );
