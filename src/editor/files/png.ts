@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
+import { toAppError } from "@/editor/errors";
 
 const PNG_FILTER = {
   name: "PNG image",
@@ -37,7 +38,11 @@ export async function choosePngToOpen(): Promise<string | null> {
 }
 
 export async function decodePng(path: string): Promise<DecodedPng> {
-  return invoke<DecodedPng>("open_png", { path });
+  try {
+    return await invoke<DecodedPng>("open_png", { path });
+  } catch (error) {
+    throw toAppError(error);
+  }
 }
 
 export async function choosePngSavePath(defaultPath: string): Promise<string | null> {
@@ -54,10 +59,14 @@ export async function encodePng(
   height: number,
   rgba: Uint8ClampedArray,
 ): Promise<string> {
-  return invoke<string>("save_png", {
-    path,
-    width,
-    height,
-    rgba: Array.from(rgba),
-  });
+  try {
+    return await invoke<string>("save_png", {
+      path,
+      width,
+      height,
+      rgba: Array.from(rgba),
+    });
+  } catch (error) {
+    throw toAppError(error);
+  }
 }

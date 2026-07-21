@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { EditorCanvas } from "@/editor/canvas";
 import { createEditorDocument, setSourceFile } from "@/editor/document";
+import { formatAppError } from "@/editor/errors";
 import {
   choosePngSavePath,
   choosePngToOpen,
@@ -25,10 +26,6 @@ const tools = {
   eraser: new EraserTool(),
   fill: new FillTool(),
 };
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
 
 function App() {
   const [documentVersion, setDocumentVersion] = useState(0);
@@ -66,7 +63,7 @@ function App() {
       setDocumentVersion((version) => version + 1);
       setStatusMessage(`Opened ${importedDocument.name}.png`);
     } catch (error) {
-      setStatusMessage(`Could not open PNG: ${errorMessage(error)}`);
+      setStatusMessage(`Could not open PNG: ${formatAppError(error)}`);
     } finally {
       setIsFileOperationPending(false);
     }
@@ -92,7 +89,7 @@ function App() {
       setDocumentVersion((version) => version + 1);
       setStatusMessage(`Saved ${savedPath}`);
     } catch (error) {
-      setStatusMessage(`Could not save PNG: ${errorMessage(error)}`);
+      setStatusMessage(`Could not save PNG: ${formatAppError(error)}`);
     } finally {
       setIsFileOperationPending(false);
     }
