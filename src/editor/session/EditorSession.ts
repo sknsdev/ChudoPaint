@@ -1,4 +1,5 @@
-import { markDocumentDirty, markDocumentSaved } from "@/editor/document";
+import { markDocumentDirty, markDocumentSaved, setSourceFile } from "@/editor/document";
+import type { SourceFileMetadata } from "@/editor/document";
 import { CallbackCommand, CommandHistory, RasterPatchCommand } from "@/editor/history";
 import type { HistoryInfo } from "@/editor/history";
 import type { EditorDocument } from "@/editor/document";
@@ -73,6 +74,7 @@ export class EditorSession implements ToolContext {
   private compositeCache: Uint8ClampedArray | null = null;
   private currentColors = { ...DEFAULT_COLORS };
   private currentBrushSettings = { ...DEFAULT_BRUSH_SETTINGS };
+  private readonly recentSourceFiles: SourceFileMetadata[] = [];
 
   constructor(
     document: EditorDocument,
@@ -95,6 +97,10 @@ export class EditorSession implements ToolContext {
     return this.history.info;
   }
 
+  get recentFiles(): readonly SourceFileMetadata[] {
+    return this.recentSourceFiles;
+  }
+
   replaceDocument(document: EditorDocument, rgba: Uint8ClampedArray): void {
     const expectedLength = document.width * document.height * 4;
     if (rgba.length !== expectedLength) {
@@ -109,11 +115,13 @@ export class EditorSession implements ToolContext {
       new RasterSurface(document.width, document.height, new Uint8ClampedArray(rgba)),
     );
     this.history.clear();
+    this.rememberSourceFile(document.sourceFile);
     this.invalidateComposite();
   }
 
-  markSaved(): void {
-    this.currentDocument = markDocumentSaved(this.currentDocument);
+  markSaved(sourceFile: SourceFileMetadata | null = this.currentDocument.sourceFile): void {
+    this.currentDocument = markDocumentSaved(setSourceFile(this.currentDocument, sourceFile));
+    this.rememberSourceFile(sourceFile);
   }
 
   get colors(): Readonly<typeof DEFAULT_COLORS> {
@@ -482,6 +490,20 @@ export class EditorSession implements ToolContext {
 
   private invalidateComposite(): void {
     this.compositeCache = null;
+  }
+
+  private rememberSourceFile(sourceFile: SourceFileMetadata | null): void {
+    if (!sourceFile) {
+      return;
+    }
+
+    const withoutCurrent = this.recentSourceFiles.filter((file) => file.path !== sourceFile.path);
+    this.recentSourceFiles.splice(
+      0,
+      this.recentSourceFiles.length,
+      sourceFile,
+      ...withoutCurrent.slice(0, 9),
+    );
   }
 
   private findLayerIndex(id: string): number {

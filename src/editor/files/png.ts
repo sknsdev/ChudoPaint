@@ -37,6 +37,14 @@ export async function choosePngToOpen(): Promise<string | null> {
   return normalizeSelectedPath(selection);
 }
 
+export async function checkPngSourceFile(path: string): Promise<boolean> {
+  try {
+    return await invoke<boolean>("check_file_available", { path });
+  } catch (error) {
+    throw toAppError(error);
+  }
+}
+
 export async function decodePng(path: string): Promise<DecodedPng> {
   try {
     return await invoke<DecodedPng>("open_png", { path });

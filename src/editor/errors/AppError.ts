@@ -6,6 +6,7 @@ export type AppErrorCode =
   | "invalidPixelBuffer"
   | "fileWriteFailed"
   | "imageEncodeFailed"
+  | "fileCheckFailed"
   | "unexpected";
 
 export interface AppErrorContext {

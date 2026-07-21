@@ -11,6 +11,7 @@ pub enum ErrorCode {
     InvalidPixelBuffer,
     FileWriteFailed,
     ImageEncodeFailed,
+    FileCheckFailed,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]

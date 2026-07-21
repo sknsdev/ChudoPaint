@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import type { PointerEvent as ReactPointerEvent, WheelEvent as ReactWheelEvent } from "react";
 import type { EditorSession } from "@/editor/session";
 import type { Tool } from "@/editor/tools";
@@ -22,8 +30,14 @@ const VIEWPORT_PADDING = 40;
 
 interface EditorCanvasProps {
   documentVersion: number;
+  onSessionChange(): void;
   session: EditorSession;
   tool: Tool;
+}
+
+export interface EditorCanvasHandle {
+  fitToScreen(): void;
+  resetToActualSize(): void;
 }
 
 interface PanState {
@@ -92,7 +106,10 @@ function drawSurface(
   context.drawImage(layerCanvas, 0, 0);
 }
 
-export function EditorCanvas({ documentVersion, session, tool }: EditorCanvasProps) {
+export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(function EditorCanvas(
+  { documentVersion, onSessionChange, session, tool },
+  ref,
+) {
   const workspaceRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const hasCenteredDocument = useRef(false);
@@ -138,6 +155,15 @@ export function EditorCanvas({ documentVersion, session, tool }: EditorCanvasPro
     setViewport(resetViewportToActualSize(document, bounds));
   }, [document]);
 
+  useImperativeHandle(
+    ref,
+    () => ({
+      fitToScreen,
+      resetToActualSize,
+    }),
+    [fitToScreen, resetToActualSize],
+  );
+
   useLayoutEffect(() => {
     const workspace = workspaceRef.current;
     if (!workspace) {
@@ -170,7 +196,7 @@ export function EditorCanvas({ documentVersion, session, tool }: EditorCanvasPro
     centerDocument();
 
     return () => observer.disconnect();
-  }, [document.height, document.id, document.width, documentVersion]);
+  }, [document.height, document.id, document.width]);
 
   useLayoutEffect(() => {
     const canvas = canvasRef.current;
@@ -236,6 +262,7 @@ export function EditorCanvas({ documentVersion, session, tool }: EditorCanvasPro
         const changed = event.shiftKey ? session.redo() : session.undo();
         if (changed) {
           setRevision((current) => current + 1);
+          onSessionChange();
         }
         return;
       }
@@ -244,6 +271,7 @@ export function EditorCanvas({ documentVersion, session, tool }: EditorCanvasPro
         event.preventDefault();
         if (session.redo()) {
           setRevision((current) => current + 1);
+          onSessionChange();
         }
       }
     };
@@ -260,7 +288,7 @@ export function EditorCanvas({ documentVersion, session, tool }: EditorCanvasPro
       globalThis.removeEventListener("keydown", onKeyDown);
       globalThis.removeEventListener("keyup", onKeyUp);
     };
-  }, [fitToScreen, resetToActualSize, session]);
+  }, [fitToScreen, onSessionChange, resetToActualSize, session]);
 
   const toDocumentPoint = (clientX: number, clientY: number): Point => {
     const workspace = workspaceRef.current;
@@ -364,6 +392,7 @@ export function EditorCanvas({ documentVersion, session, tool }: EditorCanvasPro
     );
     drawingPointerId.current = null;
     setRevision((current) => current + 1);
+    onSessionChange();
   };
 
   const onPointerCancel = (event: ReactPointerEvent<HTMLDivElement>): void => {
@@ -376,6 +405,7 @@ export function EditorCanvas({ documentVersion, session, tool }: EditorCanvasPro
       tool.onPointerCancel(session);
       drawingPointerId.current = null;
       setRevision((current) => current + 1);
+      onSessionChange();
     }
   };
 
@@ -430,4 +460,4 @@ export function EditorCanvas({ documentVersion, session, tool }: EditorCanvasPro
       </div>
     </div>
   );
-}
+});
