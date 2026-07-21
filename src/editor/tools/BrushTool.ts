@@ -10,7 +10,7 @@ export class BrushTool implements Tool {
   onPointerDown(event: ToolPointerEvent, context: ToolContext): void {
     this.previousPoint = event.point;
     this.colorSlot = event.button === 2 ? "secondary" : "primary";
-    context.beginRasterStroke();
+    context.beginRasterStroke("Brush stroke");
     context.drawRasterBrushLine(
       event.point,
       event.point,

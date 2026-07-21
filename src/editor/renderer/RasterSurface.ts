@@ -1,3 +1,5 @@
+import { clampDirtyRect } from "@/editor/renderer/DirtyRect";
+import type { DirtyRect } from "@/editor/renderer/DirtyRect";
 import type { Point } from "@/editor/viewport";
 
 export interface RgbaColor {
@@ -39,6 +41,51 @@ export class RasterSurface {
     }
 
     this.data.set(snapshot);
+  }
+
+  copyRect(rect: DirtyRect): Uint8ClampedArray {
+    const clipped = clampDirtyRect(rect, this.width, this.height);
+    if (
+      !clipped ||
+      clipped.x !== rect.x ||
+      clipped.y !== rect.y ||
+      clipped.width !== rect.width ||
+      clipped.height !== rect.height
+    ) {
+      throw new RangeError("Raster rectangle must be inside the surface bounds.");
+    }
+
+    const pixels = new Uint8ClampedArray(rect.width * rect.height * 4);
+    for (let row = 0; row < rect.height; row += 1) {
+      const sourceOffset = ((rect.y + row) * this.width + rect.x) * 4;
+      const targetOffset = row * rect.width * 4;
+      pixels.set(this.data.subarray(sourceOffset, sourceOffset + rect.width * 4), targetOffset);
+    }
+
+    return pixels;
+  }
+
+  restoreRect(rect: DirtyRect, pixels: Uint8ClampedArray): void {
+    if (pixels.length !== rect.width * rect.height * 4) {
+      throw new RangeError("Raster patch dimensions do not match its pixel data.");
+    }
+
+    const clipped = clampDirtyRect(rect, this.width, this.height);
+    if (
+      !clipped ||
+      clipped.x !== rect.x ||
+      clipped.y !== rect.y ||
+      clipped.width !== rect.width ||
+      clipped.height !== rect.height
+    ) {
+      throw new RangeError("Raster rectangle must be inside the surface bounds.");
+    }
+
+    for (let row = 0; row < rect.height; row += 1) {
+      const sourceOffset = row * rect.width * 4;
+      const targetOffset = ((rect.y + row) * this.width + rect.x) * 4;
+      this.data.set(pixels.subarray(sourceOffset, sourceOffset + rect.width * 4), targetOffset);
+    }
   }
 
   drawLine(from: Point, to: Point, color: RgbaColor): boolean {

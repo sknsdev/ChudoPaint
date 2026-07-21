@@ -5,7 +5,7 @@ export class FillTool implements Tool {
   readonly cursor = "copy";
 
   onPointerDown(event: ToolPointerEvent, context: ToolContext): void {
-    context.beginRasterStroke();
+    context.beginRasterStroke("Fill");
     context.floodFill(
       event.point,
       context.getColor(event.button === 2 ? "secondary" : "primary"),

@@ -1,23 +1,45 @@
 import { markDocumentDirty, markDocumentSaved } from "@/editor/document";
-import { RasterSnapshotCommand } from "@/editor/history/RasterSnapshotCommand";
+import { RasterPatchCommand } from "@/editor/history/RasterPatchCommand";
 import { SingleStepHistory } from "@/editor/history/SingleStepHistory";
 import type { EditorDocument } from "@/editor/document";
 import type { Layer } from "@/editor/layers/types";
-import { compositeDocumentLayers } from "@/editor/renderer/composite";
+import {
+  clampDirtyRect,
+  compositeDocumentLayers,
+  dirtyRectFromPoints,
+  unionDirtyRects,
+} from "@/editor/renderer";
+import type { BrushSettings, DirtyRect, RgbaColor } from "@/editor/renderer";
 import { RasterSurface } from "@/editor/renderer/RasterSurface";
-import type { BrushSettings, RgbaColor } from "@/editor/renderer/RasterSurface";
-import type { ColorSlot } from "@/editor/tools";
-import type { ToolContext } from "@/editor/tools";
+import type { ColorSlot, ToolContext } from "@/editor/tools";
 import type { Point } from "@/editor/viewport";
 
 interface ActiveRasterStroke {
   surface: RasterSurface;
-  before: Uint8ClampedArray;
+  label: string;
+  originalPixels: Map<number, number>;
+  dirtyRect: DirtyRect | null;
   changed: boolean;
 }
 
 function createLayerId(): string {
   return globalThis.crypto.randomUUID();
+}
+
+function packPixel(pixels: Uint8ClampedArray, offset: number): number {
+  return (
+    pixels[offset] |
+    (pixels[offset + 1] << 8) |
+    (pixels[offset + 2] << 16) |
+    (pixels[offset + 3] << 24)
+  );
+}
+
+function unpackPixel(pixels: Uint8ClampedArray, offset: number, packed: number): void {
+  pixels[offset] = packed & 0xff;
+  pixels[offset + 1] = (packed >>> 8) & 0xff;
+  pixels[offset + 2] = (packed >>> 16) & 0xff;
+  pixels[offset + 3] = (packed >>> 24) & 0xff;
 }
 
 const DEFAULT_COLORS = {
@@ -31,15 +53,13 @@ const DEFAULT_BRUSH_SETTINGS: BrushSettings = {
   opacity: 1,
 };
 
-/**
- * Owns mutable pixel surfaces outside React state and coordinates the MVP
- * one-stroke undo history.
- */
+/** Owns mutable raster surfaces, composite cache, and the active editor command. */
 export class EditorSession implements ToolContext {
   private currentDocument: EditorDocument;
   private readonly surfaces = new Map<string, RasterSurface>();
   private readonly history = new SingleStepHistory();
   private activeStroke: ActiveRasterStroke | null = null;
+  private compositeCache: Uint8ClampedArray | null = null;
   private currentColors = { ...DEFAULT_COLORS };
   private currentBrushSettings = { ...DEFAULT_BRUSH_SETTINGS };
 
@@ -72,6 +92,7 @@ export class EditorSession implements ToolContext {
       new RasterSurface(document.width, document.height, new Uint8ClampedArray(rgba)),
     );
     this.history.clear();
+    this.invalidateComposite();
   }
 
   markSaved(): void {
@@ -236,9 +257,13 @@ export class EditorSession implements ToolContext {
   }
 
   getCompositePixels(): Uint8ClampedArray {
-    return compositeDocumentLayers(this.currentDocument, (layerId) =>
-      this.getLayerSurface(layerId),
-    );
+    if (!this.compositeCache) {
+      this.compositeCache = compositeDocumentLayers(this.currentDocument, (layerId) =>
+        this.getLayerSurface(layerId),
+      );
+    }
+
+    return this.compositeCache;
   }
 
   getLayerSurface(id: string): RasterSurface {
@@ -254,7 +279,7 @@ export class EditorSession implements ToolContext {
     return this.getLayerSurface(this.currentDocument.activeLayerId);
   }
 
-  beginRasterStroke(): void {
+  beginRasterStroke(label: string): void {
     if (this.activeStroke) {
       throw new Error("A raster stroke is already active.");
     }
@@ -266,24 +291,33 @@ export class EditorSession implements ToolContext {
       return;
     }
 
-    const surface = this.getActiveSurface();
     this.activeStroke = {
-      surface,
-      before: surface.clonePixels(),
+      surface: this.getActiveSurface(),
+      label,
+      originalPixels: new Map(),
+      dirtyRect: null,
       changed: false,
     };
   }
 
   drawRasterLine(from: Point, to: Point, color: RgbaColor): boolean {
-    return this.applyToActiveStroke((surface) => surface.drawLine(from, to, color));
+    return this.applyToActiveStroke(dirtyRectFromPoints(from, to), (surface) =>
+      surface.drawLine(from, to, color),
+    );
   }
 
   drawRasterBrushLine(from: Point, to: Point, color: RgbaColor, settings: BrushSettings): boolean {
-    return this.applyToActiveStroke((surface) => surface.drawBrushLine(from, to, color, settings));
+    return this.applyToActiveStroke(
+      dirtyRectFromPoints(from, to, settings.size / 2 + 1),
+      (surface) => surface.drawBrushLine(from, to, color, settings),
+    );
   }
 
   eraseRasterBrushLine(from: Point, to: Point, settings: BrushSettings): boolean {
-    return this.applyToActiveStroke((surface) => surface.eraseBrushLine(from, to, settings));
+    return this.applyToActiveStroke(
+      dirtyRectFromPoints(from, to, settings.size / 2 + 1),
+      (surface) => surface.eraseBrushLine(from, to, settings),
+    );
   }
 
   floodFill(point: Point, color: RgbaColor, tolerance: number): boolean {
@@ -291,7 +325,10 @@ export class EditorSession implements ToolContext {
       throw new RangeError(`Fill tolerance must be between 0 and 255. Received: ${tolerance}.`);
     }
 
-    return this.applyToActiveStroke((surface) => surface.floodFill(point, color, tolerance));
+    return this.applyToActiveStroke(
+      { x: 0, y: 0, width: this.currentDocument.width, height: this.currentDocument.height },
+      (surface) => surface.floodFill(point, color, tolerance),
+    );
   }
 
   finishRasterStroke(): boolean {
@@ -302,12 +339,19 @@ export class EditorSession implements ToolContext {
     const stroke = this.activeStroke;
     this.activeStroke = null;
 
-    if (!stroke.changed) {
+    if (!stroke.changed || !stroke.dirtyRect) {
       return false;
     }
 
+    const patch = this.createPatch(stroke);
     this.history.push(
-      new RasterSnapshotCommand(stroke.surface, stroke.before, stroke.surface.clonePixels()),
+      new RasterPatchCommand(
+        stroke.label,
+        stroke.surface,
+        stroke.dirtyRect,
+        patch.before,
+        patch.after,
+      ),
     );
     this.currentDocument = markDocumentDirty(this.currentDocument);
     return true;
@@ -318,14 +362,20 @@ export class EditorSession implements ToolContext {
       return;
     }
 
-    this.activeStroke.surface.restorePixels(this.activeStroke.before);
+    const stroke = this.activeStroke;
     this.activeStroke = null;
+    if (stroke.changed && stroke.dirtyRect) {
+      const patch = this.createPatch(stroke);
+      stroke.surface.restoreRect(stroke.dirtyRect, patch.before);
+      this.invalidateComposite();
+    }
   }
 
   undo(): boolean {
     const undone = this.history.undo();
     if (undone) {
       this.currentDocument = markDocumentDirty(this.currentDocument);
+      this.invalidateComposite();
     }
 
     return undone;
@@ -335,19 +385,70 @@ export class EditorSession implements ToolContext {
     const redone = this.history.redo();
     if (redone) {
       this.currentDocument = markDocumentDirty(this.currentDocument);
+      this.invalidateComposite();
     }
 
     return redone;
   }
 
-  private applyToActiveStroke(operation: (surface: RasterSurface) => boolean): boolean {
+  private applyToActiveStroke(
+    dirtyRect: DirtyRect,
+    operation: (surface: RasterSurface) => boolean,
+  ): boolean {
     if (!this.activeStroke) {
       return false;
     }
 
+    this.captureOriginalPixels(this.activeStroke, dirtyRect);
     const changed = operation(this.activeStroke.surface);
     this.activeStroke.changed = this.activeStroke.changed || changed;
+    if (changed) {
+      this.invalidateComposite();
+    }
     return changed;
+  }
+
+  private captureOriginalPixels(stroke: ActiveRasterStroke, dirtyRect: DirtyRect): void {
+    const clipped = clampDirtyRect(dirtyRect, stroke.surface.width, stroke.surface.height);
+    if (!clipped) {
+      return;
+    }
+
+    for (let y = clipped.y; y < clipped.y + clipped.height; y += 1) {
+      for (let x = clipped.x; x < clipped.x + clipped.width; x += 1) {
+        const pixelIndex = y * stroke.surface.width + x;
+        if (!stroke.originalPixels.has(pixelIndex)) {
+          stroke.originalPixels.set(pixelIndex, packPixel(stroke.surface.data, pixelIndex * 4));
+        }
+      }
+    }
+
+    stroke.dirtyRect = unionDirtyRects(stroke.dirtyRect, clipped);
+  }
+
+  private createPatch(stroke: ActiveRasterStroke): {
+    before: Uint8ClampedArray;
+    after: Uint8ClampedArray;
+  } {
+    if (!stroke.dirtyRect) {
+      throw new Error("Cannot create a raster patch without a dirty rectangle.");
+    }
+
+    const after = stroke.surface.copyRect(stroke.dirtyRect);
+    const before = new Uint8ClampedArray(after);
+    for (const [pixelIndex, packed] of stroke.originalPixels) {
+      const x = pixelIndex % stroke.surface.width;
+      const y = Math.floor(pixelIndex / stroke.surface.width);
+      const localOffset =
+        ((y - stroke.dirtyRect.y) * stroke.dirtyRect.width + x - stroke.dirtyRect.x) * 4;
+      unpackPixel(before, localOffset, packed);
+    }
+
+    return { before, after };
+  }
+
+  private invalidateComposite(): void {
+    this.compositeCache = null;
   }
 
   private findLayerIndex(id: string): number {
@@ -381,5 +482,6 @@ export class EditorSession implements ToolContext {
     this.cancelRasterStroke();
     this.currentDocument = markDocumentDirty(document);
     this.history.clear();
+    this.invalidateComposite();
   }
 }

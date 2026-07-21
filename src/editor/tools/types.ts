@@ -9,7 +9,7 @@ export interface ToolPointerEvent {
 }
 
 export interface ToolContext {
-  beginRasterStroke(): void;
+  beginRasterStroke(label: string): void;
   drawRasterLine(from: Point, to: Point, color: RgbaColor): boolean;
   drawRasterBrushLine(from: Point, to: Point, color: RgbaColor, settings: BrushSettings): boolean;
   eraseRasterBrushLine(from: Point, to: Point, settings: BrushSettings): boolean;

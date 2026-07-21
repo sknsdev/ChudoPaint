@@ -56,4 +56,25 @@ describe("EditorSession", () => {
     expect(session.document.layers).toHaveLength(1);
     expect(session.deleteLayer(firstLayerId)).toBe(false);
   });
+
+  it("invalidates the composite cache after a raster command", () => {
+    const document = createEditorDocument({
+      width: 2,
+      height: 2,
+      idGenerator: (() => {
+        let nextId = 0;
+        return () => `id-${++nextId}`;
+      })(),
+    });
+    const session = new EditorSession(document);
+    const pencil = new PencilTool();
+    const initialComposite = session.getCompositePixels();
+
+    pencil.onPointerDown({ point: { x: 0, y: 0 }, button: 0 }, session);
+    pencil.onPointerUp({ point: { x: 0, y: 0 }, button: 0 }, session);
+
+    const updatedComposite = session.getCompositePixels();
+    expect(updatedComposite).not.toBe(initialComposite);
+    expect(updatedComposite[3]).toBe(255);
+  });
 });

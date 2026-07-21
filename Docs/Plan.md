@@ -95,12 +95,12 @@ src-tauri/src/
 
 - [x] Ввести типизированный формат ошибок Rust → TypeScript: код, понятное
   сообщение и технический context.
-- [ ] Описать контракт команд Open/Save/Export и правила ownership bitmap.
-- [ ] Ввести `Command` с `label`, `undo()` и `redo()`.
-- [ ] Перейти от full-layer snapshot к patch/dirty rectangle; для больших
+- [x] Описать контракт команд Open/Save/Export и правила ownership bitmap.
+- [x] Ввести `Command` с `label`, `undo()` и `redo()`.
+- [x] Перейти от full-layer snapshot к patch/dirty rectangle; для больших
   документов подготовить tile-based storage.
-- [ ] Добавить composite cache с явной invalidation.
-- [ ] Не сериализовать большие RGBA-буферы как JSON в горячих путях.
+- [x] Добавить composite cache с явной invalidation.
+- [x] Не сериализовать большие RGBA-буферы как JSON в горячих путях.
 
 ## 4. Приоритет P0 — надёжный editor core
 

@@ -8,7 +8,7 @@ export class EraserTool implements Tool {
 
   onPointerDown(event: ToolPointerEvent, context: ToolContext): void {
     this.previousPoint = event.point;
-    context.beginRasterStroke();
+    context.beginRasterStroke("Erase");
     context.eraseRasterBrushLine(event.point, event.point, context.getBrushSettings());
   }
 

@@ -10,7 +10,7 @@ export class PencilTool implements Tool {
   onPointerDown(event: ToolPointerEvent, context: ToolContext): void {
     this.previousPoint = event.point;
     this.colorSlot = event.button === 2 ? "secondary" : "primary";
-    context.beginRasterStroke();
+    context.beginRasterStroke("Pencil stroke");
     context.drawRasterLine(event.point, event.point, context.getColor(this.colorSlot));
   }
 
