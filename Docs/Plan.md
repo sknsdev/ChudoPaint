@@ -157,30 +157,6 @@ pointer event.
 - [ ] Переименование через доступный inline edit.
 - [ ] Композитный preview cache и dirty rectangles.
 
-### 5.2 Собственный формат `.chudopaint`
-
-Формат должен быть публичным ZIP-container:
-
-```text
-project.chudopaint
-├── manifest.json
-├── preview.png
-├── layers/
-│   ├── <layer-id>.png
-│   └── ...
-└── metadata/
-```
-
-- [ ] Версионируемый manifest с document size, background и app version.
-- [ ] Сохранять layer IDs, порядок, visibility, opacity, offset и имя.
-- [ ] Сохранять raster layer pixels без потери alpha.
-- [ ] Public specification и fixtures для обратной совместимости.
-- [ ] Migration strategy для новых manifest versions.
-- [ ] Unit и golden tests на open/save project format.
-
-**Definition of done:** многослойный документ можно сохранить, переоткрыть и
-получить идентичный composited PNG.
-
 ## 6. Milestone 0.4 — selection, clipboard и обмен данными
 
 ### 6.1 Прямоугольное выделение
