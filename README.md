@@ -4,8 +4,8 @@ ChudoPaint is a community-built, cross-platform raster image editor. It aims to 
 Paint-like workflow with a capable layer system, while remaining fast, approachable, and open
 source.
 
-> **Status:** early foundation. The first milestone establishes the Tauri + React application,
-> quality gates, and contributor workflow. The editor itself is not available yet.
+> **Status:** version 0.3.0 technical preview. It includes PNG open/save/export,
+> drawing tools, undo/redo, viewport controls, and an editable raster layer workflow.
 
 ## Goals
 

@@ -8,29 +8,27 @@ Tauri, React, TypeScript и Rust. Цель — понятный Paint-подоб
 действительно готовые функции; идея, тип или частичный прототип не считаются
 завершённой задачей.
 
-## Текущий статус — 0.2.0
+## Текущий статус — 0.3.0
 
 Готов технический preview:
 
-- [x] Tauri + React + TypeScript, CI и production bundles.
-- [x] PNG import/export через Rust.
+- [x] Tauri + React + TypeScript, CI, release workflow и production bundles.
+- [x] PNG import, Save, Save As и Export через Rust с atomic write.
 - [x] Canvas 2D, HiDPI, zoom, pan, Fit to screen и 100%.
-- [x] Первые raster-инструменты: карандаш, кисть, ластик и flood fill.
-- [x] Primary/secondary colors и native color picker.
-- [x] Базовые слои: создание, удаление с защитой последнего слоя, порядок,
-  видимость, opacity и переименование.
-- [x] Normal source-over compositing и экспорт итогового композита PNG.
-- [x] Undo/redo последней raster-операции.
+- [x] Raster-инструменты: карандаш, кисть, ластик, flood fill и пипетка.
+- [x] Primary/secondary colors: HEX, RGBA, swap/reset и горячие клавиши.
+- [x] Patch-based multi-step undo/redo с memory budget.
+- [x] Layer workflow: thumbnails, reorder, visibility, opacity, duplicate,
+  locks, merge down/visible и flatten.
+- [x] Incremental composite preview cache с dirty rectangles.
 - [x] GitHub Actions для проверок и GitHub Release workflow по version tag.
 
 ### Главные ограничения текущей версии
 
-- История хранит полный snapshot слоя и поддерживает только одну команду.
-- Нет project format: открытый PNG разворачивается в один raster-слой.
-- Нет Save/Save As, autosave, восстановления после сбоя и предупреждения о
-  несохранённых изменениях.
+- Нет собственного project format: открытый PNG разворачивается в один
+  raster-слой.
 - PNG — единственный пользовательский формат; JPEG/WebP/clipboard отсутствуют.
-- Слои не имеют thumbnails, merge, lock и истории операций.
+- Нет autosave и восстановления документа после сбоя.
 - Тяжёлые raster-операции выполняются в renderer thread и не готовы к 4K/8K.
 
 ## 1. Границы продукта
