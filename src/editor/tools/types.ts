@@ -2,6 +2,7 @@ import type { BrushSettings, RgbaColor } from "@/editor/renderer/RasterSurface";
 import type { Point } from "@/editor/viewport";
 
 export type ColorSlot = "primary" | "secondary";
+export type ColorSampleSource = "active-layer" | "composite";
 
 export interface ToolPointerEvent {
   point: Point;
@@ -16,6 +17,9 @@ export interface ToolContext {
   floodFill(point: Point, color: RgbaColor, tolerance: number): boolean;
   getColor(slot: ColorSlot): RgbaColor;
   getBrushSettings(): BrushSettings;
+  getFillTolerance(): number;
+  sampleColor(point: Point, source: ColorSampleSource): RgbaColor | null;
+  setColor(slot: ColorSlot, color: RgbaColor): void;
   finishRasterStroke(): boolean;
   cancelRasterStroke(): void;
 }

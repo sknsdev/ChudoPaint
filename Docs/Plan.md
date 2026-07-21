@@ -134,13 +134,13 @@ pointer event.
 
 ### 4.3 Завершение basic Paint workflow
 
-- [ ] Пипетка активного слоя и итогового композита.
-- [ ] Ввод/отображение HEX, RGB и alpha.
-- [ ] Настройка tolerance для fill.
-- [ ] `X` для swap colors, `D` для reset black/white.
-- [ ] Горячие клавиши инструментов и размера кисти.
-- [ ] Не перехватывать hotkeys в input, dialog и при работе с IME.
-- [ ] Preview размера brush/eraser.
+- [x] Пипетка активного слоя и итогового композита.
+- [x] Ввод/отображение HEX, RGB и alpha.
+- [x] Настройка tolerance для fill.
+- [x] `X` для swap colors, `D` для reset black/white.
+- [x] Горячие клавиши инструментов и размера кисти.
+- [x] Не перехватывать hotkeys в input, dialog и при работе с IME.
+- [x] Preview размера brush/eraser.
 
 ## 5. Milestone 0.3 — полноценные слои и project format
 

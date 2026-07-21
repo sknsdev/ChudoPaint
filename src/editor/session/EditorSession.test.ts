@@ -76,6 +76,35 @@ describe("EditorSession", () => {
     expect(session.document.layers).toHaveLength(2);
   });
 
+  it("samples colors from the active layer or composite", () => {
+    let nextId = 0;
+    const idGenerator = (): string => `id-${++nextId}`;
+    const document = createEditorDocument({ width: 2, height: 2, idGenerator });
+    const session = new EditorSession(document, idGenerator);
+    const pencil = new PencilTool();
+
+    pencil.onPointerDown({ point: { x: 0, y: 0 }, button: 0 }, session);
+    pencil.onPointerUp({ point: { x: 0, y: 0 }, button: 0 }, session);
+    session.createLayer("Top layer");
+
+    expect(session.sampleColor({ x: 0, y: 0 }, "active-layer")).toEqual({
+      red: 0,
+      green: 0,
+      blue: 0,
+      alpha: 0,
+    });
+    expect(session.sampleColor({ x: 0, y: 0 }, "composite")).toEqual(session.getColor("primary"));
+    expect(session.sampleColor({ x: -1, y: 0 }, "composite")).toBeNull();
+  });
+
+  it("stores a bounded fill tolerance", () => {
+    const session = new EditorSession(createEditorDocument({ width: 2, height: 2 }));
+
+    session.setFillTolerance(18.7);
+    expect(session.getFillTolerance()).toBe(19);
+    expect(() => session.setFillTolerance(256)).toThrow(RangeError);
+  });
+
   it("invalidates the composite cache after a raster command", () => {
     const document = createEditorDocument({
       width: 2,

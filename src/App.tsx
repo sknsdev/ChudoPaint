@@ -13,9 +13,11 @@ import {
   documentNameFromPath,
   encodePng,
 } from "@/editor/files/png";
+import { shouldIgnoreEditorHotkey } from "@/editor/keyboard";
 import { LayersPanel } from "@/editor/layers/LayersPanel";
 import { EditorSession } from "@/editor/session";
-import { BrushTool, EraserTool, FillTool, PencilTool } from "@/editor/tools";
+import { BrushTool, EraserTool, EyedropperTool, FillTool, PencilTool } from "@/editor/tools";
+import type { ColorSampleSource } from "@/editor/tools";
 import { ToolsPanel } from "@/editor/tools/ToolsPanel";
 import type { ToolId } from "@/editor/tools/ToolsPanel";
 
@@ -29,6 +31,7 @@ const tools = {
   brush: new BrushTool(),
   eraser: new EraserTool(),
   fill: new FillTool(),
+  eyedropper: new EyedropperTool(),
 };
 
 function App() {
@@ -37,6 +40,7 @@ function App() {
   const [isFileOperationPending, setIsFileOperationPending] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [activeToolId, setActiveToolId] = useState<ToolId>("pencil");
+  const [eyedropperSource, setEyedropperSource] = useState<ColorSampleSource>("composite");
   const [, setToolSettingsVersion] = useState(0);
   const document = editorSession.document;
   const historyInfo = editorSession.historyInfo;
@@ -180,16 +184,63 @@ function App() {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
-      if (!(event.ctrlKey || event.metaKey) || event.defaultPrevented) {
+      if (shouldIgnoreEditorHotkey(event)) {
         return;
       }
 
-      if (event.key.toLowerCase() === "s") {
+      const hasCommandModifier = event.ctrlKey || event.metaKey;
+      if (hasCommandModifier) {
+        if (event.key.toLowerCase() === "s") {
+          event.preventDefault();
+          void (event.shiftKey ? saveAs() : save());
+        } else if (event.key.toLowerCase() === "o") {
+          event.preventDefault();
+          void openPng();
+        }
+        return;
+      }
+
+      if (event.altKey) {
+        return;
+      }
+
+      const toolByShortcut: Partial<Record<string, ToolId>> = {
+        p: "pencil",
+        b: "brush",
+        e: "eraser",
+        g: "fill",
+        i: "eyedropper",
+      };
+      const shortcutTool = toolByShortcut[event.key.toLowerCase()];
+      if (shortcutTool) {
         event.preventDefault();
-        void (event.shiftKey ? saveAs() : save());
-      } else if (event.key.toLowerCase() === "o") {
+        setActiveToolId(shortcutTool);
+        return;
+      }
+
+      if (event.key.toLowerCase() === "x") {
         event.preventDefault();
-        void openPng();
+        editorSession.swapColors();
+        setToolSettingsVersion((version) => version + 1);
+        return;
+      }
+
+      if (event.key.toLowerCase() === "d") {
+        event.preventDefault();
+        editorSession.resetColors();
+        setToolSettingsVersion((version) => version + 1);
+        return;
+      }
+
+      if (event.key === "[" || event.key === "]") {
+        event.preventDefault();
+        const settings = editorSession.getBrushSettings();
+        const step = event.shiftKey ? 10 : 1;
+        editorSession.setBrushSettings({
+          ...settings,
+          size: Math.max(1, Math.min(128, settings.size + (event.key === "]" ? step : -step))),
+        });
+        setToolSettingsVersion((version) => version + 1);
       }
     };
 
@@ -252,8 +303,13 @@ function App() {
         <aside className="editor-sidebar" aria-label="Editor controls">
           <ToolsPanel
             activeTool={activeToolId}
+            eyedropperSource={eyedropperSource}
             session={editorSession}
             onActiveToolChange={setActiveToolId}
+            onEyedropperSourceChange={(source) => {
+              tools.eyedropper.setSampleSource(source);
+              setEyedropperSource(source);
+            }}
             onSettingsChange={() => setToolSettingsVersion((version) => version + 1)}
           />
           <LayersPanel

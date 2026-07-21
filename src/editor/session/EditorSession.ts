@@ -12,7 +12,7 @@ import {
 } from "@/editor/renderer";
 import type { BrushSettings, DirtyRect, RgbaColor } from "@/editor/renderer";
 import { RasterSurface } from "@/editor/renderer/RasterSurface";
-import type { ColorSlot, ToolContext } from "@/editor/tools";
+import type { ColorSampleSource, ColorSlot, ToolContext } from "@/editor/tools";
 import type { Point } from "@/editor/viewport";
 
 interface ActiveRasterStroke {
@@ -64,6 +64,7 @@ const DEFAULT_BRUSH_SETTINGS: BrushSettings = {
   hardness: 1,
   opacity: 1,
 };
+const DEFAULT_FILL_TOLERANCE = 0;
 
 /** Owns mutable raster surfaces, composite cache, and the active editor command. */
 export class EditorSession implements ToolContext {
@@ -74,6 +75,7 @@ export class EditorSession implements ToolContext {
   private compositeCache: Uint8ClampedArray | null = null;
   private currentColors = { ...DEFAULT_COLORS };
   private currentBrushSettings = { ...DEFAULT_BRUSH_SETTINGS };
+  private fillTolerance = DEFAULT_FILL_TOLERANCE;
   private readonly recentSourceFiles: SourceFileMetadata[] = [];
 
   constructor(
@@ -155,6 +157,36 @@ export class EditorSession implements ToolContext {
 
   getBrushSettings(): BrushSettings {
     return { ...this.currentBrushSettings };
+  }
+
+  getFillTolerance(): number {
+    return this.fillTolerance;
+  }
+
+  setFillTolerance(tolerance: number): void {
+    if (!Number.isFinite(tolerance) || tolerance < 0 || tolerance > 255) {
+      throw new RangeError(`Fill tolerance must be between 0 and 255. Received: ${tolerance}.`);
+    }
+
+    this.fillTolerance = Math.round(tolerance);
+  }
+
+  sampleColor(point: Point, source: ColorSampleSource): RgbaColor | null {
+    const x = Math.round(point.x);
+    const y = Math.round(point.y);
+    if (x < 0 || y < 0 || x >= this.currentDocument.width || y >= this.currentDocument.height) {
+      return null;
+    }
+
+    const pixels =
+      source === "composite" ? this.getCompositePixels() : this.getActiveSurface().data;
+    const offset = (y * this.currentDocument.width + x) * 4;
+    return {
+      red: pixels[offset],
+      green: pixels[offset + 1],
+      blue: pixels[offset + 2],
+      alpha: pixels[offset + 3],
+    };
   }
 
   setBrushSettings(settings: BrushSettings): void {

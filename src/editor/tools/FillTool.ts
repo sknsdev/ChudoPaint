@@ -9,7 +9,7 @@ export class FillTool implements Tool {
     context.floodFill(
       event.point,
       context.getColor(event.button === 2 ? "secondary" : "primary"),
-      0,
+      context.getFillTolerance(),
     );
     context.finishRasterStroke();
   }

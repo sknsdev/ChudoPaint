@@ -8,6 +8,7 @@ import {
   useState,
 } from "react";
 import type { PointerEvent as ReactPointerEvent, WheelEvent as ReactWheelEvent } from "react";
+import { shouldIgnoreEditorHotkey } from "@/editor/keyboard";
 import type { EditorSession } from "@/editor/session";
 import type { Tool } from "@/editor/tools";
 import {
@@ -118,8 +119,11 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(fu
   const drawingPointerId = useRef<number | null>(null);
   const [viewport, setViewport] = useState<Viewport>(() => createViewport());
   const [revision, setRevision] = useState(0);
+  const [previewPoint, setPreviewPoint] = useState<Point | null>(null);
   const document = session.document;
   const historyInfo = session.historyInfo;
+  const brushSettings = session.getBrushSettings();
+  const showsBrushPreview = tool.id === "brush" || tool.id === "eraser";
 
   const fitToScreen = useCallback((): void => {
     const workspace = workspaceRef.current;
@@ -238,6 +242,10 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(fu
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
+      if (shouldIgnoreEditorHotkey(event)) {
+        return;
+      }
+
       if (event.code === "Space") {
         spacePressed.current = true;
         event.preventDefault();
@@ -345,10 +353,9 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(fu
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
     drawingPointerId.current = event.pointerId;
-    tool.onPointerDown(
-      { point: toDocumentPoint(event.clientX, event.clientY), button: event.button },
-      session,
-    );
+    const point = toDocumentPoint(event.clientX, event.clientY);
+    setPreviewPoint(point);
+    tool.onPointerDown({ point, button: event.button }, session);
     setRevision((current) => current + 1);
   };
 
@@ -369,10 +376,9 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(fu
       return;
     }
 
-    tool.onPointerMove(
-      { point: toDocumentPoint(event.clientX, event.clientY), button: event.button },
-      session,
-    );
+    const point = toDocumentPoint(event.clientX, event.clientY);
+    setPreviewPoint(point);
+    tool.onPointerMove({ point, button: event.button }, session);
     setRevision((current) => current + 1);
   };
 
@@ -386,10 +392,9 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(fu
       return;
     }
 
-    tool.onPointerUp(
-      { point: toDocumentPoint(event.clientX, event.clientY), button: event.button },
-      session,
-    );
+    const point = toDocumentPoint(event.clientX, event.clientY);
+    setPreviewPoint(point);
+    tool.onPointerUp({ point, button: event.button }, session);
     drawingPointerId.current = null;
     setRevision((current) => current + 1);
     onSessionChange();
@@ -418,9 +423,25 @@ export const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(fu
       onPointerCancel={onPointerCancel}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
+      onPointerLeave={() => {
+        if (drawingPointerId.current === null) {
+          setPreviewPoint(null);
+        }
+      }}
       onPointerUp={onPointerUp}
       onWheel={onWheel}
     >
+      {showsBrushPreview && previewPoint ? (
+        <div
+          aria-hidden="true"
+          className="brush-preview"
+          style={{
+            width: `${brushSettings.size * viewport.zoom}px`,
+            height: `${brushSettings.size * viewport.zoom}px`,
+            transform: `translate(${viewport.origin.x + previewPoint.x * viewport.zoom - (brushSettings.size * viewport.zoom) / 2}px, ${viewport.origin.y + previewPoint.y * viewport.zoom - (brushSettings.size * viewport.zoom) / 2}px)`,
+          }}
+        />
+      ) : null}
       <canvas
         ref={canvasRef}
         className="editor-canvas"

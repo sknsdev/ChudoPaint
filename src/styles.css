@@ -184,6 +184,15 @@ h1 {
   touch-action: none;
 }
 
+.brush-preview {
+  position: absolute;
+  z-index: 2;
+  border: 1px solid #eef2ff;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 70%);
+  pointer-events: none;
+}
+
 .editor-canvas {
   position: absolute;
   top: 0;
@@ -269,6 +278,20 @@ h1 {
   cursor: pointer;
 }
 
+.tool-grid button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.25rem;
+}
+
+.tool-grid kbd,
+.color-controls kbd {
+  color: #a8c7ff;
+  font-family: inherit;
+  font-size: 0.7rem;
+}
+
 .tool-grid button[aria-pressed="true"] {
   border-color: #a8c7ff;
   background: #365c96;
@@ -279,8 +302,30 @@ h1 {
   margin-top: 0.75rem;
 }
 
-.color-controls label,
-.brush-controls label {
+.color-editor {
+  min-width: 0;
+  margin: 0;
+  padding: 0.45rem;
+  border: 1px solid #34415f;
+  border-radius: 0.35rem;
+}
+
+.color-editor legend {
+  padding: 0 0.2rem;
+  color: #cbd5e1;
+  font-size: 0.75rem;
+}
+
+.color-editor > input[type="color"] {
+  width: 100%;
+  min-height: 2rem;
+  margin-bottom: 0.35rem;
+}
+
+.color-editor > label,
+.color-channels label,
+.brush-controls label,
+.eyedropper-source {
   display: grid;
   gap: 0.25rem;
   color: #cbd5e1;
@@ -288,16 +333,44 @@ h1 {
 }
 
 .color-controls input[type="color"] {
-  width: 100%;
-  min-height: 2rem;
   border: 1px solid #5d78ae;
   border-radius: 0.25rem;
   background: transparent;
   cursor: pointer;
 }
 
-.brush-controls {
+.color-editor input:not([type="color"]),
+.eyedropper-source select {
+  min-width: 0;
+  padding: 0.3rem;
+  border: 1px solid #5d78ae;
+  border-radius: 0.25rem;
+  background: #101827;
+  color: #eef2ff;
+}
+
+.color-channels {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.25rem;
+  margin-top: 0.35rem;
+}
+
+.color-channels label {
+  min-width: 0;
+}
+
+.color-channels input {
+  width: 100%;
+}
+
+.brush-controls,
+.eyedropper-source {
   margin-top: 0.75rem;
+}
+
+.eyedropper-source select {
+  width: 100%;
 }
 
 .panel-heading {
